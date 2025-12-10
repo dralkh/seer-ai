@@ -1,5 +1,10 @@
 # Seer AI
 
+<img width="502" height="353" alt="image" src="https://github.com/user-attachments/assets/3ccb2e0d-908e-43e3-99f4-e2fc5b3ff86d" />
+
+https://github.com/user-attachments/assets/b0847022-d1ab-4e98-8e3a-607d1073db8f
+
+
 [![Zotero 7 Compatible](https://img.shields.io/badge/Zotero-7.x-brightgreen)](https://www.zotero.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
