@@ -11,6 +11,7 @@ class Addon {
     env: "development" | "production";
     initialized?: boolean;
     ztoolkit: ZToolkit;
+    theme: "light" | "dark";
     locale?: {
       current: any;
     };
@@ -20,6 +21,7 @@ class Addon {
       rows: Array<{ [dataKey: string]: string }>;
     };
     dialog?: DialogHelper;
+    disconnectThemeObserver?: () => void;
   };
   // Lifecycle hooks
   public hooks: typeof hooks;
@@ -33,6 +35,7 @@ class Addon {
       env: __env__,
       initialized: false,
       ztoolkit: createZToolkit(),
+      theme: "light",
     };
     this.hooks = hooks;
     this.api = {};

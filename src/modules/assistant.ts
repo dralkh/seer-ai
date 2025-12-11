@@ -210,10 +210,10 @@ export class Assistant {
             styles: {
                 flex: "1",
                 overflowY: "auto",
-                border: "1px solid #ddd",
+                border: "1px solid var(--border-primary)",
                 borderRadius: "6px",
                 padding: "10px",
-                backgroundColor: "#fafafa",
+                backgroundColor: "var(--background-primary)",
                 display: "flex",
                 flexDirection: "column",
                 gap: "10px",
@@ -251,7 +251,7 @@ export class Assistant {
                 flexWrap: "wrap",
                 gap: "6px",
                 padding: "8px",
-                backgroundColor: "#f5f5f5",
+                backgroundColor: "var(--background-secondary)",
                 borderRadius: "6px",
                 minHeight: "40px",
                 alignItems: "center"
@@ -264,7 +264,7 @@ export class Assistant {
         if (states.items.length > 0 || states.notes.length > 0) {
             const label = ztoolkit.UI.createElement(doc, "span", {
                 properties: { innerText: "Context:" },
-                styles: { fontSize: "11px", color: "#666", marginRight: "4px", fontWeight: "600" }
+                styles: { fontSize: "11px", color: "var(--text-secondary)", marginRight: "4px", fontWeight: "600" }
             });
             selectionArea.appendChild(label);
         }
@@ -280,16 +280,17 @@ export class Assistant {
         // Render note chips (show count instead of individual notes if many)
         if (states.notes.length > 3) {
             const notesSummary = ztoolkit.UI.createElement(doc, "div", {
+                properties: {
+                    innerText: `📝 ${states.notes.length} notes included`,
+                    className: "chip chip-notes-summary"
+                },
                 styles: {
                     display: "inline-flex",
                     alignItems: "center",
                     padding: "3px 8px",
-                    backgroundColor: selectionConfigs.notes.backgroundColor,
-                    border: `1px solid ${selectionConfigs.notes.borderColor}`,
                     borderRadius: "12px",
                     fontSize: "11px"
-                },
-                properties: { innerText: `📝 ${states.notes.length} notes included` }
+                }
             });
             selectionArea.appendChild(notesSummary);
         } else {
@@ -308,11 +309,11 @@ export class Assistant {
             styles: {
                 padding: "4px 10px",
                 fontSize: "11px",
-                border: "1px dashed #2196f3",
+                border: "1px dashed var(--button-dashed-border-blue)",
                 borderRadius: "4px",
                 backgroundColor: "transparent",
                 cursor: "pointer",
-                color: "#1565c0"
+                color: "var(--button-dashed-text-blue)"
             },
             listeners: [{
                 type: "click",
@@ -330,11 +331,11 @@ export class Assistant {
             styles: {
                 padding: "4px 10px",
                 fontSize: "11px",
-                border: "1px dashed #ff9800",
+                border: "1px dashed var(--button-dashed-border-orange)",
                 borderRadius: "4px",
                 backgroundColor: "transparent",
                 cursor: "pointer",
-                color: "#e65100"
+                color: "var(--button-dashed-text-orange)"
             },
             listeners: [{
                 type: "click",
@@ -366,9 +367,9 @@ export class Assistant {
                     fontSize: "10px",
                     border: "none",
                     borderRadius: "4px",
-                    backgroundColor: "#ffebee",
+                    backgroundColor: "var(--button-clear-background)",
                     cursor: "pointer",
-                    color: "#c62828"
+                    color: "var(--button-clear-text)"
                 },
                 listeners: [{
                     type: "click",
@@ -493,9 +494,14 @@ export class Assistant {
             }
         });
 
+
+
+        const win = doc.defaultView;
+        const isDarkMode = (win as any)?.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false;
         const dialog = ztoolkit.UI.createElement(doc, "div", {
             styles: {
-                backgroundColor: "#fff",
+                backgroundColor: `var(--background-primary, ${isDarkMode ? '#333333' : '#fafafa'})`,
+                color: `var(--text-primary, ${isDarkMode ? '#eeeeee' : '#212121'})`,
                 borderRadius: "12px",
                 padding: "20px",
                 maxWidth: "450px",
@@ -526,16 +532,16 @@ export class Assistant {
 
         const filterLabel = ztoolkit.UI.createElement(doc, "label", {
             properties: { innerText: "📁 Filter by collection:" },
-            styles: { fontSize: "12px", color: "#666" }
+            styles: { fontSize: "12px", color: "var(--text-secondary)" }
         });
 
         const filterSelect = ztoolkit.UI.createElement(doc, "select", {
             styles: {
                 padding: "8px 12px",
-                border: "1px solid #ddd",
+                border: "1px solid var(--border-primary)",
                 borderRadius: "6px",
                 fontSize: "13px",
-                backgroundColor: "#fff",
+                backgroundColor: "var(--background-primary)",
                 cursor: "pointer"
             }
         }) as HTMLSelectElement;
@@ -579,7 +585,7 @@ export class Assistant {
             attributes: { type: "text", placeholder: "Search tags..." },
             styles: {
                 padding: "8px 12px",
-                border: "1px solid #ddd",
+                border: "1px solid var(--border-primary)",
                 borderRadius: "6px",
                 fontSize: "13px"
             }
@@ -606,7 +612,7 @@ export class Assistant {
             if (allTags.length === 0) {
                 const noTags = ztoolkit.UI.createElement(doc, "div", {
                     properties: { innerText: "No tags found in selected scope" },
-                    styles: { padding: "12px", color: "#666", textAlign: "center" }
+                    styles: { padding: "12px", color: "var(--text-secondary)", textAlign: "center" }
                 });
                 tagList.appendChild(noTags);
                 return;
@@ -619,7 +625,7 @@ export class Assistant {
             if (filteredTags.length === 0) {
                 const noResults = ztoolkit.UI.createElement(doc, "div", {
                     properties: { innerText: filter ? "No tags match your search" : "No tags available" },
-                    styles: { padding: "12px", color: "#666", textAlign: "center" }
+                    styles: { padding: "12px", color: "var(--text-secondary)", textAlign: "center" }
                 });
                 tagList.appendChild(noResults);
                 return;
@@ -637,7 +643,7 @@ export class Assistant {
                         padding: "6px 8px",
                         borderRadius: "4px",
                         cursor: "pointer",
-                        backgroundColor: isChecked ? "#fff3e0" : "transparent"
+                        backgroundColor: isChecked ? "var(--tag-checked-background)" : "transparent"
                     }
                 });
 
@@ -649,7 +655,7 @@ export class Assistant {
                 checkbox.addEventListener("change", () => {
                     if (checkbox.checked) {
                         selectedTags.add(tagName);
-                        tagRow.style.backgroundColor = "#fff3e0";
+                        tagRow.style.backgroundColor = "var(--tag-checked-background)";
                     } else {
                         selectedTags.delete(tagName);
                         tagRow.style.backgroundColor = "transparent";
@@ -669,7 +675,7 @@ export class Assistant {
             // Show count
             const countEl = ztoolkit.UI.createElement(doc, "div", {
                 properties: { innerText: `Showing ${filteredTags.length} of ${allTags.length} tags` },
-                styles: { fontSize: "11px", color: "#888", padding: "8px", textAlign: "center" }
+                styles: { fontSize: "11px", color: "var(--text-tertiary)", padding: "8px", textAlign: "center" }
             });
             tagList.appendChild(countEl);
         };
@@ -709,9 +715,9 @@ export class Assistant {
             properties: { innerText: "Cancel" },
             styles: {
                 padding: "8px 16px",
-                border: "1px solid #ddd",
+                border: "1px solid var(--border-primary)",
                 borderRadius: "6px",
-                backgroundColor: "#f5f5f5",
+                backgroundColor: "var(--background-secondary)",
                 cursor: "pointer"
             },
             listeners: [{
@@ -726,8 +732,8 @@ export class Assistant {
                 padding: "8px 16px",
                 border: "none",
                 borderRadius: "6px",
-                backgroundColor: "#ff9800",
-                color: "#fff",
+                backgroundColor: "var(--button-dashed-border-orange)",
+                color: "var(--highlight-text)",
                 cursor: "pointer",
                 fontWeight: "600"
             },
@@ -772,13 +778,13 @@ export class Assistant {
             if (e.target === overlay) overlay.remove();
         });
 
-        // Append to documentElement (works better in Zotero's XUL context)
-        const target = doc.documentElement || doc.body;
-        if (target) {
-            target.appendChild(overlay);
+        // Append to body to inherit styles (Zotero adds 'dark' class to body)
+        if (doc.body) {
+            doc.body.appendChild(overlay);
             searchInput.focus();
         } else {
-            Zotero.debug("[Seer AI] Error: No valid append target for tag picker modal");
+            (doc.documentElement || doc).appendChild(overlay);
+            searchInput.focus();
         }
     }
 
@@ -910,9 +916,14 @@ export class Assistant {
             }
         });
 
+
+
+        const win = doc.defaultView;
+        const isDarkMode = (win as any)?.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false;
         const dialog = ztoolkit.UI.createElement(doc, "div", {
             styles: {
-                backgroundColor: "#fff",
+                backgroundColor: `var(--background-primary, ${isDarkMode ? '#333333' : '#fafafa'})`,
+                color: `var(--text-primary, ${isDarkMode ? '#eeeeee' : '#212121'})`,
                 borderRadius: "12px",
                 padding: "20px",
                 maxWidth: "550px",
@@ -943,16 +954,16 @@ export class Assistant {
 
         const filterLabel = ztoolkit.UI.createElement(doc, "label", {
             properties: { innerText: "📁 Filter by collection:" },
-            styles: { fontSize: "12px", color: "#666" }
+            styles: { fontSize: "12px", color: "var(--text-secondary)" }
         });
 
         const filterSelect = ztoolkit.UI.createElement(doc, "select", {
             styles: {
                 padding: "8px 12px",
-                border: "1px solid #ddd",
+                border: "1px solid var(--border-primary)",
                 borderRadius: "6px",
                 fontSize: "13px",
-                backgroundColor: "#fff",
+                backgroundColor: "var(--background-primary)",
                 cursor: "pointer"
             }
         }) as HTMLSelectElement;
@@ -996,7 +1007,7 @@ export class Assistant {
             attributes: { type: "text", placeholder: "Search by title, author, or year..." },
             styles: {
                 padding: "8px 12px",
-                border: "1px solid #ddd",
+                border: "1px solid var(--border-primary)",
                 borderRadius: "6px",
                 fontSize: "13px"
             }
@@ -1023,7 +1034,7 @@ export class Assistant {
             if (allItems.length === 0) {
                 const noItems = ztoolkit.UI.createElement(doc, "div", {
                     properties: { innerText: "No papers found in selected scope" },
-                    styles: { padding: "12px", color: "#666", textAlign: "center" }
+                    styles: { padding: "12px", color: "var(--text-secondary)", textAlign: "center" }
                 });
                 paperList.appendChild(noItems);
                 return;
@@ -1041,7 +1052,7 @@ export class Assistant {
             if (filteredItems.length === 0) {
                 const noResults = ztoolkit.UI.createElement(doc, "div", {
                     properties: { innerText: filter ? "No papers match your search" : "No papers available" },
-                    styles: { padding: "12px", color: "#666", textAlign: "center" }
+                    styles: { padding: "12px", color: "var(--text-secondary)", textAlign: "center" }
                 });
                 paperList.appendChild(noResults);
                 return;
@@ -1059,7 +1070,7 @@ export class Assistant {
                         padding: "8px",
                         borderRadius: "6px",
                         cursor: alreadyAdded ? "default" : "pointer",
-                        backgroundColor: isChecked ? "#e3f2fd" : (alreadyAdded ? "#f0f0f0" : "transparent"),
+                        backgroundColor: isChecked ? "var(--paper-checked-background)" : (alreadyAdded ? "var(--paper-added-background)" : "transparent"),
                         opacity: alreadyAdded ? "0.6" : "1"
                     }
                 });
@@ -1074,7 +1085,7 @@ export class Assistant {
                     if (alreadyAdded) return;
                     if (checkbox.checked) {
                         selectedPapers.add(item.id);
-                        (paperRow as HTMLElement).style.backgroundColor = "#e3f2fd";
+                        (paperRow as HTMLElement).style.backgroundColor = "var(--paper-checked-background)";
                     } else {
                         selectedPapers.delete(item.id);
                         (paperRow as HTMLElement).style.backgroundColor = "transparent";
@@ -1097,7 +1108,7 @@ export class Assistant {
 
                 const metaEl = ztoolkit.UI.createElement(doc, "div", {
                     properties: { innerText: metaText },
-                    styles: { fontSize: "11px", color: "#666" }
+                    styles: { fontSize: "11px", color: "var(--text-secondary)" }
                 });
 
                 labelContent.appendChild(titleEl);
@@ -1110,7 +1121,7 @@ export class Assistant {
             // Show count
             const countEl = ztoolkit.UI.createElement(doc, "div", {
                 properties: { innerText: `Showing ${filteredItems.length} of ${allItems.length} papers` },
-                styles: { fontSize: "11px", color: "#888", padding: "8px", textAlign: "center" }
+                styles: { fontSize: "11px", color: "var(--text-tertiary)", padding: "8px", textAlign: "center" }
             });
             paperList.appendChild(countEl);
         };
@@ -1150,9 +1161,9 @@ export class Assistant {
             properties: { innerText: "Cancel" },
             styles: {
                 padding: "8px 16px",
-                border: "1px solid #ddd",
+                border: "1px solid var(--border-primary)",
                 borderRadius: "6px",
-                backgroundColor: "#f5f5f5",
+                backgroundColor: "var(--background-secondary)",
                 cursor: "pointer"
             },
             listeners: [{
@@ -1167,8 +1178,8 @@ export class Assistant {
                 padding: "8px 16px",
                 border: "none",
                 borderRadius: "6px",
-                backgroundColor: "#2196f3",
-                color: "#fff",
+                backgroundColor: "var(--button-dashed-border-blue)",
+                color: "var(--highlight-text)",
                 cursor: "pointer",
                 fontWeight: "600"
             },
@@ -1210,13 +1221,13 @@ export class Assistant {
             if (e.target === overlay) overlay.remove();
         });
 
-        // Append to documentElement (works better in Zotero's XUL context)
-        const target = doc.documentElement || doc.body;
-        if (target) {
-            target.appendChild(overlay);
+        // Append to body to inherit styles (Zotero adds 'dark' class to body)
+        if (doc.body) {
+            doc.body.appendChild(overlay);
             searchInput.focus();
         } else {
-            Zotero.debug("[Seer AI] Error: No valid append target for paper picker modal");
+            (doc.documentElement || doc).appendChild(overlay);
+            searchInput.focus();
         }
     }
 
@@ -1341,16 +1352,18 @@ export class Assistant {
      */
     private static createChip(doc: Document, label: string, config: typeof selectionConfigs.items, onRemove: () => void): HTMLElement {
         const chip = ztoolkit.UI.createElement(doc, "div", {
+            properties: {
+                className: `chip ${config.className}`
+            },
             styles: {
                 display: "inline-flex",
                 alignItems: "center",
                 gap: "4px",
                 padding: "3px 8px",
-                backgroundColor: config.backgroundColor,
-                border: `1px solid ${config.borderColor}`,
                 borderRadius: "12px",
                 fontSize: "11px",
-                maxWidth: "180px"
+                maxWidth: "180px",
+                border: "1px solid"
             }
         });
 
@@ -1374,7 +1387,7 @@ export class Assistant {
             styles: {
                 cursor: "pointer",
                 fontSize: "10px",
-                color: "#666",
+                color: "var(--text-secondary)",
                 marginLeft: "2px",
                 padding: "2px",
                 borderRadius: "50%"
@@ -1418,9 +1431,9 @@ export class Assistant {
             styles: {
                 padding: "4px 8px",
                 fontSize: "11px",
-                border: "1px solid #ddd",
+                border: "1px solid var(--border-primary)",
                 borderRadius: "4px",
-                backgroundColor: "#fff",
+                backgroundColor: "var(--background-primary)",
                 cursor: "pointer",
                 maxWidth: "150px"
             },
@@ -1452,10 +1465,10 @@ export class Assistant {
             styles: {
                 padding: "4px 10px",
                 fontSize: "11px",
-                border: "1px solid #dc3545",
+                border: "1px solid var(--button-stop-border)",
                 borderRadius: "4px",
-                backgroundColor: "#fff",
-                color: "#dc3545",
+                backgroundColor: "var(--button-stop-background)",
+                color: "var(--button-stop-text)",
                 cursor: "pointer",
                 display: "none" // Hidden by default
             },
@@ -1475,10 +1488,10 @@ export class Assistant {
             styles: {
                 padding: "4px 10px",
                 fontSize: "11px",
-                border: "1px solid #6c757d",
+                border: "1px solid var(--button-clear-border)",
                 borderRadius: "4px",
-                backgroundColor: "#fff",
-                color: "#6c757d",
+                backgroundColor: "var(--button-clear-background)",
+                color: "var(--button-clear-text)",
                 cursor: "pointer"
             },
             listeners: [{
@@ -1506,10 +1519,10 @@ export class Assistant {
             styles: {
                 padding: "4px 10px",
                 fontSize: "11px",
-                border: "1px solid #28a745",
+                border: "1px solid var(--button-save-border)",
                 borderRadius: "4px",
-                backgroundColor: "#fff",
-                color: "#28a745",
+                backgroundColor: "var(--button-save-background)",
+                color: "var(--button-save-text)",
                 cursor: "pointer"
             },
             listeners: [{
@@ -1703,9 +1716,9 @@ export class Assistant {
                 flexWrap: "wrap",
                 gap: "6px",
                 padding: "8px",
-                backgroundColor: "#f0f8ff",
+                backgroundColor: "var(--image-preview-background)",
                 borderRadius: "6px",
-                border: "1px dashed #03a9f4"
+                border: "1px dashed var(--image-preview-border)"
             }
         });
 
@@ -1719,7 +1732,7 @@ export class Assistant {
 
             const label = ztoolkit.UI.createElement(doc, "div", {
                 properties: { innerText: `🖼️ ${pastedImages.length} image(s) attached:` },
-                styles: { width: "100%", fontSize: "11px", color: "#0288d1", marginBottom: "4px" }
+                styles: { width: "100%", fontSize: "11px", color: "var(--image-preview-text)", marginBottom: "4px" }
             });
             imagePreviewArea.appendChild(label);
 
@@ -1731,7 +1744,7 @@ export class Assistant {
                         height: "60px",
                         borderRadius: "4px",
                         overflow: "hidden",
-                        border: "1px solid #ddd"
+                        border: "1px solid var(--border-primary)"
                     }
                 });
 
@@ -1787,7 +1800,7 @@ export class Assistant {
             styles: {
                 flex: "1",
                 padding: "8px 12px",
-                border: "1px solid #ddd",
+                border: "1px solid var(--border-primary)",
                 borderRadius: "6px",
                 fontSize: "13px"
             },
@@ -1843,8 +1856,8 @@ export class Assistant {
                 padding: "8px 16px",
                 border: "none",
                 borderRadius: "6px",
-                backgroundColor: "#007bff",
-                color: "#fff",
+                backgroundColor: "var(--highlight-primary)",
+                color: "var(--highlight-text)",
                 cursor: "pointer",
                 fontSize: "13px"
             },
@@ -1899,7 +1912,7 @@ export class Assistant {
             Zotero.debug(`[Seer AI] Error saving user message: ${e}`);
         }
 
-        this.appendMessage(messagesArea, "You", text, "#e3f2fd", "#1976d2");
+        this.appendMessage(messagesArea, "You", text, userMsg.id, true);
 
         input.value = "";
         input.disabled = true;
@@ -1910,7 +1923,7 @@ export class Assistant {
         if (stopBtn) stopBtn.style.display = "inline-block";
 
         // Create streaming message placeholder
-        const streamingDiv = this.appendMessage(messagesArea, "Assistant", "", "#f5f5f5", "#424242");
+        const streamingDiv = this.appendMessage(messagesArea, "Assistant", "");
         const contentDiv = streamingDiv.querySelector('[data-content]') as HTMLElement;
 
         try {
@@ -2099,7 +2112,7 @@ Be concise, accurate, and helpful. When referencing papers, cite them by title o
         const displayText = pastedImages.length > 0
             ? `${text || "(no text)"} 🖼️ ${pastedImages.length} image(s)`
             : text;
-        this.appendMessage(messagesArea, "You", displayText, "#e3f2fd", "#1976d2");
+        this.appendMessage(messagesArea, "You", displayText, userMsg.id, true);
 
         input.value = "";
         input.disabled = true;
@@ -2110,7 +2123,7 @@ Be concise, accurate, and helpful. When referencing papers, cite them by title o
         if (stopBtn) stopBtn.style.display = "inline-block";
 
         // Create streaming message placeholder
-        const streamingDiv = this.appendMessage(messagesArea, "Assistant", "", "#f5f5f5", "#424242");
+        const streamingDiv = this.appendMessage(messagesArea, "Assistant", "");
         const contentDiv = streamingDiv.querySelector('[data-content]') as HTMLElement;
 
         try {
@@ -2240,8 +2253,6 @@ Be concise, accurate, and helpful. When referencing papers, cite them by title o
         container: HTMLElement,
         sender: string,
         text: string,
-        bgColor: string,
-        textColor: string = "#000",
         msgId?: string,
         isLastUserMsg?: boolean
     ): HTMLElement {
@@ -2250,15 +2261,16 @@ Be concise, accurate, and helpful. When referencing papers, cite them by title o
         const isAssistant = sender === "Assistant";
 
         const msgDiv = ztoolkit.UI.createElement(doc, "div", {
+            properties: {
+                className: `message-bubble ${isUser ? 'message-user' : 'message-assistant'}`
+            },
             attributes: { "data-msg-id": msgId || "" },
             styles: {
-                backgroundColor: bgColor,
                 padding: "10px 14px",
                 borderRadius: isUser ? "12px 12px 4px 12px" : "12px 12px 12px 4px",
                 fontSize: "13px",
                 maxWidth: "90%",
                 alignSelf: isUser ? "flex-end" : "flex-start",
-                color: textColor,
                 boxShadow: "0 1px 2px rgba(0,0,0,0.1)",
                 position: "relative"
             }
@@ -2575,12 +2587,10 @@ Be concise, accurate, and helpful. When referencing papers, cite them by title o
 
         conversationMessages.forEach((msg, idx) => {
             const isUser = msg.role === 'user';
-            const bgColor = isUser ? "#e3f2fd" : (msg.role === 'error' ? "#ffebee" : "#f5f5f5");
-            const textColor = isUser ? "#1976d2" : (msg.role === 'error' ? "#c62828" : "#424242");
             const sender = isUser ? "You" : (msg.role === 'error' ? "Error" : "Assistant");
             const isLastUserMsg = isUser && idx === lastUserMsgIndex;
 
-            this.appendMessage(messagesArea, sender, msg.content, bgColor, textColor, msg.id, isLastUserMsg);
+            this.appendMessage(messagesArea, sender, msg.content, msg.id, isLastUserMsg);
         });
     }
 
@@ -2601,7 +2611,7 @@ Be concise, accurate, and helpful. When referencing papers, cite them by title o
         if (stopBtn) stopBtn.style.display = "inline-block";
 
         // Create streaming message placeholder
-        const streamingDiv = this.appendMessage(messagesArea, "Assistant", "", "#f5f5f5", "#424242");
+        const streamingDiv = this.appendMessage(messagesArea, "Assistant", "");
         const contentDiv = streamingDiv.querySelector('[data-content]') as HTMLElement;
 
         try {
@@ -2703,10 +2713,8 @@ Be concise, accurate, and helpful. When referencing papers, cite them by title o
      */
     private static renderStoredMessage(container: HTMLElement, msg: ChatMessage, isLastUserMsg: boolean = false) {
         const isUser = msg.role === 'user';
-        const bgColor = isUser ? "#e3f2fd" : (msg.role === 'error' ? "#ffebee" : "#f5f5f5");
-        const textColor = isUser ? "#1976d2" : (msg.role === 'error' ? "#c62828" : "#424242");
         const sender = isUser ? "You" : (msg.role === 'error' ? "Error" : "Assistant");
-        this.appendMessage(container, sender, msg.content, bgColor, textColor, msg.id, isLastUserMsg);
+        this.appendMessage(container, sender, msg.content, msg.id, isLastUserMsg);
     }
 
     /**

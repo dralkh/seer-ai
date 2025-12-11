@@ -149,53 +149,45 @@ export const defaultChatOptions: ChatOptions = {
 
 // Selection chip display config
 export interface SelectionConfig {
-    backgroundColor: string;
-    borderColor: string;
     icon: string;
     label: string;
+    className: string;
 }
 
 export const selectionConfigs: Record<StateName, SelectionConfig> = {
     items: {
-        backgroundColor: '#e3f2fd',
-        borderColor: '#2196f3',
         icon: '📄',
         label: 'Items',
+        className: 'chip-items',
     },
     creators: {
-        backgroundColor: '#f3e5f5',
-        borderColor: '#9c27b0',
         icon: '👤',
         label: 'Creators',
+        className: 'chip-creators',
     },
     tags: {
-        backgroundColor: '#fff3e0',
-        borderColor: '#ff9800',
         icon: '🏷️',
         label: 'Tags',
+        className: 'chip-tags',
     },
     collections: {
-        backgroundColor: '#e8f5e9',
-        borderColor: '#4caf50',
         icon: '📁',
         label: 'Collections',
+        className: 'chip-collections',
     },
     notes: {
-        backgroundColor: '#fffde7',
-        borderColor: '#ffeb3b',
         icon: '📝',
         label: 'Notes',
+        className: 'chip-notes',
     },
     attachments: {
-        backgroundColor: '#fce4ec',
-        borderColor: '#e91e63',
         icon: '📎',
         label: 'Attachments',
+        className: 'chip-attachments',
     },
     images: {
-        backgroundColor: '#e1f5fe',
-        borderColor: '#03a9f4',
         icon: '🖼️',
         label: 'Images',
+        className: 'chip-images',
     },
 };

@@ -1,5 +1,6 @@
 <linkset>
   <html:link rel="localization" href="__addonRef__-preferences.ftl" />
+  <html:link rel="stylesheet" href="preferences.css" />
 </linkset>
 <groupbox onload="Zotero.__addonInstance__.hooks.onPrefsEvent('load', { window });">
   <label>
@@ -16,10 +17,8 @@
     <button id="zotero-prefpane-__addonRef__-models-delete" data-l10n-id="pref-models-delete" disabled="true" />
     <button id="zotero-prefpane-__addonRef__-models-default" data-l10n-id="pref-models-set-default" disabled="true" />
   </hbox>
-  <html:div id="__addonRef__-models-list"
-    style="border: 1px solid #ccc; border-radius: 4px; padding: 8px; min-height: 120px; max-height: 200px; overflow-y: auto; background: #fafafa;">
-    <html:p id="__addonRef__-models-empty" data-l10n-id="pref-models-empty"
-      style="color: #666; font-style: italic; margin: 0;"></html:p>
+  <html:div id="__addonRef__-models-list">
+    <html:p id="__addonRef__-models-empty" data-l10n-id="pref-models-empty"></html:p>
   </html:div>
 
   <html:hr />

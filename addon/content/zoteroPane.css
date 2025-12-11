@@ -1,3 +1,229 @@
+:root {
+  --background-primary: #fafafa;
+  --background-secondary: #f5f5f5;
+  --background-tertiary: #e0e0e0;
+  --text-primary: #212121;
+  --text-secondary: #666;
+  --text-tertiary: #999;
+  --border-primary: #ddd;
+  --border-secondary: #ccc;
+  --highlight-primary: #007bff;
+  --highlight-text: #fff;
+  --button-dashed-border-blue: #2196f3;
+  --button-dashed-text-blue: #1565c0;
+  --button-dashed-border-orange: #ff9800;
+  --button-dashed-text-orange: #e65100;
+  --button-clear-background: #ffebee;
+  --button-clear-text: #c62828;
+  --tag-checked-background: #fff3e0;
+  --paper-checked-background: #e3f2fd;
+  --paper-added-background: #f0f0f0;
+
+  --button-stop-border: #dc3545;
+  --button-stop-background: #fff;
+  --button-stop-text: #dc3545;
+  --button-clear-border: #6c757d;
+  --button-save-border: #28a745;
+  --button-save-background: #fff;
+  --button-save-text: #28a745;
+  --image-preview-background: #f0f8ff;
+  --image-preview-border: #03a9f4;
+  --image-preview-text: #0288d1;
+  --message-user-background: #e3f2fd;
+  --message-user-text: #1976d2;
+  --message-assistant-background: #f5f5f5;
+  --message-assistant-text: #424242;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background-primary: #333;
+    --background-secondary: #2a2a2a;
+    --background-tertiary: #424242;
+    --text-primary: #eee;
+    --text-secondary: #bbb;
+    --text-tertiary: #888;
+    --border-primary: #555;
+    --border-secondary: #666;
+    --highlight-primary: #0088ff;
+    --highlight-text: #fff;
+    --button-dashed-border-blue: #4dabf5;
+    --button-dashed-text-blue: #4dabf5;
+    --button-dashed-border-orange: #ffc94d;
+    --button-dashed-text-orange: #ffc94d;
+    --button-clear-background: #5c1f1f;
+    --button-clear-text: #f48a8a;
+    --tag-checked-background: #6d4d00;
+    --paper-checked-background: #0d47a1;
+    --paper-added-background: #424242;
+
+    --button-stop-border: #e57373;
+    --button-stop-background: #333;
+    --button-stop-text: #e57373;
+    --button-clear-border: #90a4ae;
+    --button-save-border: #81c784;
+    --button-save-background: #333;
+    --button-save-text: #81c784;
+    --image-preview-background: #012a3f;
+    --image-preview-border: #4fc3f7;
+    --image-preview-text: #4fc3f7;
+    --message-user-background: #0d47a1;
+    --message-user-text: #bbdefb;
+    --message-assistant-background: #424242;
+    --message-assistant-text: #eee;
+  }
+}
+
+body.dark,
+:root[data-theme='dark'],
+html.dark {
+  --background-primary: #333;
+  --background-secondary: #2a2a2a;
+  --background-tertiary: #424242;
+  --text-primary: #eee;
+  --text-secondary: #bbb;
+  --text-tertiary: #888;
+  --border-primary: #555;
+  --border-secondary: #666;
+  --highlight-primary: #0088ff;
+  --highlight-text: #fff;
+  --button-dashed-border-blue: #4dabf5;
+  --button-dashed-text-blue: #4dabf5;
+  --button-dashed-border-orange: #ffc94d;
+  --button-dashed-text-orange: #ffc94d;
+  --button-clear-background: #5c1f1f;
+  --button-clear-text: #f48a8a;
+  --tag-checked-background: #6d4d00;
+  --paper-checked-background: #0d47a1;
+  --paper-added-background: #424242;
+
+  --button-stop-border: #e57373;
+  --button-stop-background: #333;
+  --button-stop-text: #e57373;
+  --button-clear-border: #90a4ae;
+  --button-save-border: #81c784;
+  --button-save-background: #333;
+  --button-save-text: #81c784;
+  --image-preview-background: #012a3f;
+  --image-preview-border: #4fc3f7;
+  --image-preview-text: #4fc3f7;
+  --message-user-background: #0d47a1;
+  --message-user-text: #bbdefb;
+  --message-assistant-background: #424242;
+  --message-assistant-text: #eee;
+}
+
 .makeItRed {
   background-color: tomato;
+}
+
+.chip {
+  color: var(--text-primary);
+}
+
+.chip-items {
+  background-color: #e3f2fd;
+  border-color: #2196f3;
+}
+
+.chip-creators {
+  background-color: #f3e5f5;
+  border-color: #9c27b0;
+}
+
+.chip-tags {
+  background-color: #fff3e0;
+  border-color: #ff9800;
+}
+
+.chip-collections {
+  background-color: #e8f5e9;
+  border-color: #4caf50;
+}
+
+.chip-notes {
+  background-color: #fffde7;
+  border-color: #ffeb3b;
+}
+
+.chip-notes-summary {
+  background-color: #fffde7;
+  border: 1px solid #ffeb3b;
+}
+
+.chip-attachments {
+  background-color: #fce4ec;
+  border-color: #e91e63;
+}
+
+.chip-images {
+  background-color: #e1f5fe;
+  border-color: #03a9f4;
+}
+
+body.dark .chip-items {
+  background-color: #0d47a1;
+  border-color: #4dabf5;
+}
+
+body.dark .chip-creators {
+  background-color: #4a148c;
+  border-color: #ab47bc;
+}
+
+body.dark .chip-tags {
+  background-color: #6d4d00;
+  border-color: #ffc94d;
+}
+
+body.dark .chip-collections {
+  background-color: #1b5e20;
+  border-color: #66bb6a;
+}
+
+body.dark .chip-notes {
+  background-color: #fff59d;
+  border-color: #ffc107;
+  color: #000;
+}
+
+body.dark .chip-notes-summary {
+  background-color: #fff59d;
+  border: 1px solid #ffc107;
+  color: #000;
+}
+
+body.dark .chip-attachments {
+  background-color: #880e4f;
+  border-color: #f06292;
+}
+
+
+
+body.dark .chip-images {
+
+  background-color: #01579b;
+
+  border-color: #4fc3f7;
+
+}
+
+
+
+.message-user {
+
+  background-color: var(--message-user-background);
+
+  color: var(--message-user-text);
+
+}
+
+
+
+.message-assistant {
+
+  background-color: var(--message-assistant-background);
+
+  color: var(--message-assistant-text);
+
 }

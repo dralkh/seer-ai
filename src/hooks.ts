@@ -4,6 +4,7 @@ import { getString, initLocale } from "./utils/locale";
 import { registerPrefsScripts } from "./modules/preferenceScript";
 import { createZToolkit } from "./utils/ztoolkit";
 import { DataLabService } from "./modules/datalab";
+import { initThemeObserver } from "./utils/theme";
 
 const dataLabService = new DataLabService();
 
@@ -31,6 +32,8 @@ async function onStartup() {
 async function onMainWindowLoad(win: _ZoteroTypes.MainWindow): Promise<void> {
   // Create ztoolkit for every window
   addon.data.ztoolkit = createZToolkit();
+
+  addon.data.disconnectThemeObserver = initThemeObserver(win);
 
   win.MozXULElement.insertFTLIfNeeded(
     `${addon.data.config.addonRef}-mainWindow.ftl`,
@@ -212,6 +215,7 @@ async function processParentItemsInBatches(parentItems: Zotero.Item[]) {
 
 
 async function onMainWindowUnload(win: Window): Promise<void> {
+  addon.data.disconnectThemeObserver?.();
   addon.data.ztoolkit.unregisterAll();
   addon.data.dialog?.window?.close();
 }
