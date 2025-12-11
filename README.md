@@ -38,6 +38,14 @@ https://github.com/user-attachments/assets/b0847022-d1ab-4e98-8e3a-607d1073db8f
 - **Batch Processing** — Process multiple PDFs concurrently
 - **Automatic Note Creation** — Extracted text is saved as Zotero notes linked to your papers
 
+### Papers Tables
+- **Structured Extraction** — Extract specific data points from multiple papers into a comparative table
+- **AI-Powered Columns** — Define custom columns with AI prompts to extract exactly what you need (e.g., "Methodology", "Sample Size")
+- **One-Click Generation** — Generate data for individual cells or entire columns with a single click
+- **Column Presets** — Save and load your favorite column configurations for different research projects
+- **Auto-Processing** — Automatically processes PDFs with DataLabs if notes are missing
+
+
 ### Conversation Management
 - **Persistent History** — Conversations are preserved across sessions
 - **Edit Messages** — Modify previous messages and regenerate responses
@@ -198,10 +206,18 @@ Enhanced search functionality to help users find relevant literature more effect
 Moving beyond keyword matching to understanding the meaning of your queries.
 - **Voice, Transcription, Embedding Integration**: Support for OpenAI-compatible embedding, voice, transcription models (e.g., `text-embedding-3-small`, local Ollama embeddings).
 - **Contextual Retrieval**: Find papers based on conceptual similarity rather than just exact text matches.
-- **In-Memory Vector Store**: Fast, local indexing of session-relevant papers for semantic analysis.
+- **In-Memory Vector Store** — Fast, local indexing of session-relevant papers for semantic analysis.
+
+### 4. Data Verification & Quality Control
+- **Verifier Button** — One-click verification to check all extracted data against source text.
+- **Confidence Scores** — AI-generated confidence ratings for each extracted data point.
+- **Source Highlighting** — Click a cell to see the exact passage in the paper where the data came from.
+
+### 5. Workspace Integration
+- **Chat with Workspace** — seamless integration to use your defined workspace (table data, added papers) as context for chat conversations.
+- **Workspace-Aware Prompts** — Prompts that can reference structured data from your tables.
 
 ### Others
-Table data extractions
 Citations refrencing
 MCP
 Connectors

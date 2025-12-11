@@ -227,3 +227,265 @@ body.dark .chip-images {
   color: var(--message-assistant-text);
 
 }
+
+/* Tab Bar Styles */
+.tab-bar {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border-primary);
+  background-color: var(--background-secondary);
+  border-radius: 6px 6px 0 0;
+  overflow: hidden;
+}
+
+.tab-item {
+  padding: 8px 16px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background-color: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s ease;
+  flex: 1;
+  text-align: center;
+}
+
+.tab-item:hover {
+  background-color: var(--background-tertiary);
+  color: var(--text-primary);
+}
+
+.tab-item.active {
+  color: var(--highlight-primary);
+  border-bottom-color: var(--highlight-primary);
+  background-color: var(--background-primary);
+}
+
+/* Papers Table Styles */
+.papers-table-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.table-toolbar {
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+  background-color: var(--background-secondary);
+  border-bottom: 1px solid var(--border-primary);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.table-search-input {
+  flex: 1;
+  min-width: 150px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-primary);
+  border-radius: 4px;
+  font-size: 12px;
+  background-color: var(--background-primary);
+  color: var(--text-primary);
+}
+
+.table-search-input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.table-btn {
+  padding: 6px 12px;
+  font-size: 11px;
+  border: 1px solid var(--border-primary);
+  border-radius: 4px;
+  background-color: var(--background-primary);
+  color: var(--text-primary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.table-btn:hover {
+  background-color: var(--background-tertiary);
+}
+
+.table-btn-primary {
+  background-color: var(--highlight-primary);
+  color: var(--highlight-text);
+  border-color: var(--highlight-primary);
+}
+
+.table-btn-primary:hover {
+  opacity: 0.9;
+}
+
+/* Table Wrapper */
+.table-wrapper {
+  flex: 1;
+  overflow: auto;
+  background-color: var(--background-primary);
+}
+
+.papers-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  table-layout: fixed;
+}
+
+.papers-table th {
+  position: sticky;
+  top: 0;
+  background-color: var(--background-secondary);
+  border-bottom: 1px solid var(--border-primary);
+  padding: 8px 10px;
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-primary);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.papers-table th:hover {
+  background-color: var(--background-tertiary);
+}
+
+.papers-table th.sortable::after {
+  content: '';
+  display: inline-block;
+  margin-left: 4px;
+  width: 0;
+  height: 0;
+  vertical-align: middle;
+}
+
+.papers-table th.sort-asc::after {
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-bottom: 4px solid var(--text-primary);
+}
+
+.papers-table th.sort-desc::after {
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 4px solid var(--text-primary);
+}
+
+.column-resize-handle {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  cursor: col-resize;
+  background-color: transparent;
+}
+
+.column-resize-handle:hover {
+  background-color: var(--highlight-primary);
+}
+
+.papers-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border-primary);
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.papers-table tr:hover td {
+  background-color: var(--background-secondary);
+}
+
+.papers-table tr.selected td {
+  background-color: var(--paper-checked-background);
+}
+
+/* Table Empty State */
+.table-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  color: var(--text-tertiary);
+  text-align: center;
+  gap: 8px;
+}
+
+.table-empty-state-icon {
+  font-size: 32px;
+  opacity: 0.5;
+}
+
+.table-empty-state-text {
+  font-size: 13px;
+}
+
+/* Response Length Slider */
+.response-length-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  background-color: var(--background-tertiary);
+  border-radius: 4px;
+}
+
+.response-length-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.response-length-slider {
+  width: 80px;
+  cursor: pointer;
+}
+
+.response-length-value {
+  font-size: 11px;
+  color: var(--text-primary);
+  min-width: 30px;
+}
+
+/* Column Manager Modal */
+.column-manager-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.column-manager-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 4px;
+  background-color: var(--background-secondary);
+}
+
+.column-manager-item:hover {
+  background-color: var(--background-tertiary);
+}
+
+.column-manager-item label {
+  flex: 1;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.column-manager-item input[type="checkbox"] {
+  cursor: pointer;
+}
