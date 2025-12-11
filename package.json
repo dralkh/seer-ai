@@ -1,7 +1,7 @@
 {
   "name": "seer-ai",
   "type": "module",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Seer AI - Intelligent Research Assistant for Zotero",
   "config": {
     "addonName": "Seer AI",
@@ -18,7 +18,7 @@
   "bugs": {
     "url": "https://github.com/dralkh/Seer-AI/issues"
   },
-  "homepage": "https://github.com/dralkh/Seer-AI#readme",
+  "homepage": "https://github.com/dralkh/seer-ai",
   "license": "MIT",
   "scripts": {
     "start": "zotero-plugin serve",
