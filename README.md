@@ -200,6 +200,14 @@ Moving beyond keyword matching to understanding the meaning of your queries.
 - **Contextual Retrieval**: Find papers based on conceptual similarity rather than just exact text matches.
 - **In-Memory Vector Store**: Fast, local indexing of session-relevant papers for semantic analysis.
 
+### Others
+Table data extractions
+Citations refrencing
+MCP
+Connectors
+Commands
+UI
+
 ---
 
 ## Contributing
