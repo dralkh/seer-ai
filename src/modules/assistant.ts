@@ -212,12 +212,12 @@ export class Assistant {
             }
         }
 
-        // Auto-add current item with its notes if not already selected
-        if (!stateManager.isSelected('items', item.id)) {
+        // Auto-add current item with its notes if not already selected (unless locked)
+        const options = stateManager.getOptions();
+        if (!options.lockExploration && !stateManager.isSelected('items', item.id)) {
             // Use async but don't await - will re-render when done
             this.addItemWithNotes(item);
         }
-
         // Main Container with tabs
         const mainContainer = ztoolkit.UI.createElement(doc, "div", {
             styles: {
@@ -2940,8 +2940,8 @@ Task: ${columnPrompt}`;
             });
         }
 
-        // Clear all button (if more than 1 item)
-        if (states.items.length > 1 || states.tags.length > 0) {
+        // Clear all button (allow clearing even single items)
+        if (stateManager.hasSelections()) {
             const clearAllBtn = ztoolkit.UI.createElement(doc, "button", {
                 properties: { innerText: "✕ Clear All" },
                 styles: {
@@ -2957,8 +2957,8 @@ Task: ${columnPrompt}`;
                     type: "click",
                     listener: async () => {
                         stateManager.clearAll();
-                        // Re-add current item and re-render
-                        if (currentItem) {
+                        // Re-add current item ONLY if NOT locked
+                        if (!stateManager.getOptions().lockExploration && currentItem) {
                             await this.addItemWithNotes(currentItem);
                         }
                     }
@@ -4032,9 +4032,38 @@ Task: ${columnPrompt}`;
         // Populate model options
         this.populateModelSelector(modelSelect);
 
-        // Settings button
+        // Lock Context Toggle
+        const stateManager = getChatStateManager();
+        const lockToggle = ztoolkit.UI.createElement(doc, "div", {
+            styles: { display: "flex", alignItems: "center", gap: "4px", marginLeft: "4px" }
+        });
+
+        const toggleCheckbox = ztoolkit.UI.createElement(doc, "input", {
+            attributes: { type: "checkbox", id: "lock-toggle" },
+            properties: { checked: stateManager.getOptions().lockExploration },
+            listeners: [{
+                type: "change",
+                listener: async (e: Event) => {
+                    const checked = (e.target as HTMLInputElement).checked;
+                    stateManager.setOptions({ lockExploration: checked });
+                    // If unlocked and we have a current item, auto-add it (resume follow mode)
+                    if (!checked && currentItem) {
+                        await this.addItemWithNotes(currentItem);
+                    }
+                }
+            }]
+        });
+
+        const toggleLabel = ztoolkit.UI.createElement(doc, "label", {
+            properties: { htmlFor: "lock-toggle", innerText: "🔒 Lock" },
+            styles: { fontSize: "11px", cursor: "pointer", userSelect: "none" }
+        });
+
+        lockToggle.appendChild(toggleCheckbox);
+        lockToggle.appendChild(toggleLabel);
 
         leftControls.appendChild(modelSelect);
+        leftControls.appendChild(lockToggle);
 
         // Right side: Action buttons
         const rightControls = ztoolkit.UI.createElement(doc, "div", {

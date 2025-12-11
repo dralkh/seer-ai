@@ -136,6 +136,7 @@ export interface ChatOptions {
     includeFullText: boolean;
     includeAbstracts: boolean;
     includeImages: boolean;  // Include image attachments for vision models
+    lockExploration: boolean; // Prevent auto-adding items on selection
     maxTokens?: number;
     model?: string;
 }
@@ -145,6 +146,7 @@ export const defaultChatOptions: ChatOptions = {
     includeFullText: true,
     includeAbstracts: true,
     includeImages: true,  // Enabled by default for vision models
+    lockExploration: false,
 };
 
 // Selection chip display config
