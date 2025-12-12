@@ -109,9 +109,9 @@ npm run build
 
 ### DataLab OCR Setup
 
-Seer AI supports two modes for PDF-to-markdown conversion:
+Seer AI supports three modes for PDF-to-markdown conversion:
 
-#### Option A: Cloud (DataLab.to)
+#### Option A: DataLab.to
 
 1. Get an API key from [datalab.to](https://datalab.to)
 2. Go to **Zotero → Settings → Seer AI**
@@ -153,6 +153,17 @@ The server will start at `http://localhost:8001`.
 2. Select **Local Marker Server** from the OCR Service dropdown
 3. Set Server URL to `http://localhost:8001`
 4. Optional: Enable **Force OCR** for scanned PDFs
+
+#### Option C: Mistral OCR
+
+Use Mistral's AI-powered OCR for high-quality document extraction.
+
+1. Get an API key from [Mistral AI](https://console.mistral.ai/)
+2. Go to **Zotero → Settings → Seer AI**
+3. Select **Mistral OCR** from the OCR Service dropdown
+4. Enter your Mistral API Key
+
+Mistral OCR uses the `mistral-ocr-latest` model and automatically handles file upload/cleanup.
 
 ---
 

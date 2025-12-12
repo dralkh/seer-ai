@@ -3,10 +3,10 @@ import { BasicExampleFactory } from "./modules/examples";
 import { getString, initLocale } from "./utils/locale";
 import { registerPrefsScripts } from "./modules/preferenceScript";
 import { createZToolkit } from "./utils/ztoolkit";
-import { DataLabService } from "./modules/datalab";
+import { OcrService } from "./modules/ocr";
 import { initThemeObserver } from "./utils/theme";
 
-const dataLabService = new DataLabService();
+const ocrService = new OcrService();
 
 async function onStartup() {
   await Promise.all([
@@ -48,7 +48,7 @@ async function onMainWindowLoad(win: _ZoteroTypes.MainWindow): Promise<void> {
     if (!menuItem) {
       menuItem = win.document.createXULElement("menuitem") as XUL.MenuItem;
       menuItem.setAttribute("id", menuItemId);
-      menuItem.setAttribute("label", "Extract with DataLab");
+      menuItem.setAttribute("label", "Extract with OCR");
       menuItem.setAttribute("class", "menuitem-iconic");
       menuItem.addEventListener("command", async () => {
         await processSelectedItems();
@@ -62,7 +62,7 @@ async function onMainWindowLoad(win: _ZoteroTypes.MainWindow): Promise<void> {
       const hasPdf = items.some(item => {
         if (item.isAttachment() && item.attachmentPath?.toLowerCase().endsWith(".pdf")) return true;
         if (item.isRegularItem()) {
-          const pdf = dataLabService.getFirstPdfAttachment(item);
+          const pdf = ocrService.getFirstPdfAttachment(item);
           return pdf !== null;
         }
         return false;
@@ -125,8 +125,8 @@ async function processSelectedItems() {
     if (parentId && parentItem && !parentIdSet.has(parentId)) {
       ztoolkit.log(`DataLab: Checking parent ${parentId} (not yet in set)`);
       // Check if already has a note with matching title
-      if (!dataLabService.hasExistingNote(parentItem)) {
-        const pdf = dataLabService.getFirstPdfAttachment(parentItem);
+      if (!ocrService.hasExistingNote(parentItem)) {
+        const pdf = ocrService.getFirstPdfAttachment(parentItem);
         if (pdf) {
           parentIdSet.add(parentId);
           parentItems.push(parentItem);
@@ -170,8 +170,8 @@ async function processAllLibraryItems() {
     if (!item.isRegularItem()) continue;
 
     // Check if has PDF and no existing note
-    const pdf = dataLabService.getFirstPdfAttachment(item);
-    if (pdf && !dataLabService.hasExistingNote(item)) {
+    const pdf = ocrService.getFirstPdfAttachment(item);
+    if (pdf && !ocrService.hasExistingNote(item)) {
       parentItems.push(item);
     }
   }
@@ -203,9 +203,9 @@ async function processParentItemsInBatches(parentItems: Zotero.Item[]) {
     const batch = parentItems.slice(i, i + maxConcurrent);
     ztoolkit.log(`DataLab: Processing batch ${Math.floor(i / maxConcurrent) + 1}`);
     await Promise.all(batch.map(parent => {
-      const pdf = dataLabService.getFirstPdfAttachment(parent);
+      const pdf = ocrService.getFirstPdfAttachment(parent);
       if (pdf) {
-        return dataLabService.convertToMarkdown(pdf);
+        return ocrService.convertToMarkdown(pdf);
       }
       return Promise.resolve();
     }));

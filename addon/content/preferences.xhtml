@@ -23,9 +23,9 @@
 
   <html:hr style="margin: 16px 0;" />
 
-  <!-- DataLab OCR Configuration -->
+  <!-- OCR Configurations -->
   <label>
-    <html:h3 data-l10n-id="pref-datalab-title">DataLab OCR</html:h3>
+    <html:h3 data-l10n-id="pref-datalab-title">OCR Configurations</html:h3>
   </label>
 
   <!-- Service Selection with Menulist Dropdown -->
@@ -35,6 +35,7 @@
       <menupopup>
         <menuitem value="local" label="Local Marker Server" />
         <menuitem value="cloud" label="Cloud (DataLab.to)" />
+        <menuitem value="mistral" label="Mistral OCR" />
       </menupopup>
     </menulist>
   </hbox>
@@ -59,7 +60,7 @@
     </hbox>
   </vbox>
 
-  <!-- Cloud Settings -->
+  <!-- Cloud DataLab Settings -->
   <vbox id="zotero-prefpane-__addonRef__-cloudSettings"
     style="margin-left: 20px; margin-bottom: 12px; padding: 10px; background: rgba(0,0,0,0.03); border-radius: 4px;">
     <hbox align="center" style="margin-bottom: 8px;">
@@ -72,6 +73,23 @@
     </hbox>
     <hbox align="center">
       <checkbox id="zotero-prefpane-__addonRef__-cloudUseLlm" label="Use LLM (AI-enhanced extraction)" />
+    </hbox>
+  </vbox>
+
+  <!-- Mistral OCR Settings -->
+  <vbox id="zotero-prefpane-__addonRef__-mistralSettings"
+    style="margin-left: 20px; margin-bottom: 12px; padding: 10px; background: rgba(0,0,0,0.03); border-radius: 4px;">
+    <hbox align="center" style="margin-bottom: 8px;">
+      <label style="width: 100px;">API Key:</label>
+      <html:input type="password" id="zotero-prefpane-__addonRef__-mistralApiKey" placeholder="Mistral API Key"
+        style="flex: 1; min-width: 200px;"></html:input>
+    </hbox>
+    <hbox align="center">
+      <html:a href="https://docs.mistral.ai/capabilities/document/"
+        style="color: #0066cc; text-decoration: underline; cursor: pointer; font-size: 12px;"
+        onclick="Zotero.launchURL(this.href); return false;">
+        📖 Mistral OCR Docs
+      </html:a>
     </hbox>
   </vbox>
 

@@ -156,38 +156,50 @@ function bindPrefEvents() {
   }
 
   // Function to show/hide settings based on mode selection
-  function updateModeVisibility(isLocal: boolean) {
+  function updateModeVisibility(mode: string) {
     const localSettings = doc?.querySelector(`#zotero-prefpane-${config.addonRef}-localSettings`) as HTMLElement;
     const cloudSettings = doc?.querySelector(`#zotero-prefpane-${config.addonRef}-cloudSettings`) as HTMLElement;
+    const mistralSettings = doc?.querySelector(`#zotero-prefpane-${config.addonRef}-mistralSettings`) as HTMLElement;
 
     if (localSettings) {
-      localSettings.style.display = isLocal ? "" : "none";
+      localSettings.style.display = mode === "local" ? "" : "none";
     }
     if (cloudSettings) {
-      cloudSettings.style.display = isLocal ? "none" : "";
+      cloudSettings.style.display = mode === "cloud" ? "" : "none";
+    }
+    if (mistralSettings) {
+      mistralSettings.style.display = mode === "mistral" ? "" : "none";
     }
   }
 
   // Bind menulist for mode selection
   const modeSelect = doc?.querySelector(`#zotero-prefpane-${config.addonRef}-datalabMode`) as XUL.MenuList;
   if (modeSelect) {
-    // Load current value from preference
-    const useLocal = Zotero.Prefs.get(`${prefPrefix}.datalabUseLocal`) as boolean ?? false;
-    modeSelect.value = useLocal ? "local" : "cloud";
-    updateModeVisibility(useLocal);
+    // Load current value from preference (fallback to datalabUseLocal for backward compat)
+    let currentMode = Zotero.Prefs.get(`${prefPrefix}.datalabMode`) as string;
+    if (!currentMode) {
+      // Backward compatibility: check old boolean preference
+      const useLocal = Zotero.Prefs.get(`${prefPrefix}.datalabUseLocal`) as boolean;
+      currentMode = useLocal ? "local" : "cloud";
+    }
+    modeSelect.value = currentMode;
+    updateModeVisibility(currentMode);
 
     // Save on change
     modeSelect.addEventListener("command", () => {
-      const isLocal = modeSelect.value === "local";
-      Zotero.Prefs.set(`${prefPrefix}.datalabUseLocal`, isLocal);
-      updateModeVisibility(isLocal);
-      ztoolkit.log(`Saved datalabUseLocal: ${isLocal}`);
+      const newMode = modeSelect.value;
+      Zotero.Prefs.set(`${prefPrefix}.datalabMode`, newMode);
+      // Also update boolean for backward compat
+      Zotero.Prefs.set(`${prefPrefix}.datalabUseLocal`, newMode === "local");
+      updateModeVisibility(newMode);
+      ztoolkit.log(`Saved datalabMode: ${newMode}`);
     });
   }
 
   // Bind other DataLab settings
   bindInput(`zotero-prefpane-${config.addonRef}-datalabUrl`, "datalabUrl");
   bindInput(`zotero-prefpane-${config.addonRef}-datalabApiKey`, "datalabApiKey");
+  bindInput(`zotero-prefpane-${config.addonRef}-mistralApiKey`, "mistralApiKey");
   bindInput(`zotero-prefpane-${config.addonRef}-datalabMaxConcurrent`, "datalabMaxConcurrent");
 
   // Local-specific settings

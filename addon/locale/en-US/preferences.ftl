@@ -1,5 +1,5 @@
 pref-title = Seer AI Settings
-pref-datalab-title = DataLab OCR
+pref-datalab-title = OCR Configurations
 pref-datalabModeLocal = Local Marker Server
 pref-datalabModeCloud = Cloud (DataLab.to)
 pref-datalabForceOcr = Force OCR (recommended for scanned PDFs)

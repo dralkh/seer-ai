@@ -18,7 +18,7 @@ interface DatalabPolledResult {
     success?: boolean;
 }
 
-export class DataLabService {
+export class OcrService {
     private apiKey: string;
     private apiUrl = "https://www.datalab.to/api/v1";
 
@@ -115,13 +115,38 @@ export class DataLabService {
     }
 
     public async convertToMarkdown(item: Zotero.Item) {
-        this.apiKey = Zotero.Prefs.get(`${config.prefsPrefix}.datalabApiKey`) as string;
-        const useLocalMarker = Zotero.Prefs.get(`${config.prefsPrefix}.datalabUseLocal`) as boolean;
+        // Get mode and API keys
+        const rawMode = Zotero.Prefs.get(`${config.prefsPrefix}.datalabMode`);
+        ztoolkit.log(`OCR: Raw mode preference value: "${rawMode}" (type: ${typeof rawMode})`);
 
-        // Check API key for cloud mode only
-        if (!useLocalMarker && !this.apiKey) {
+        let mode = (rawMode as string)?.trim?.() || "";
+        if (!mode) {
+            // Backward compatibility
+            const useLocal = Zotero.Prefs.get(`${config.prefsPrefix}.datalabUseLocal`) as boolean;
+            mode = useLocal ? "local" : "cloud";
+            ztoolkit.log(`OCR: Using fallback mode: "${mode}" (useLocal: ${useLocal})`);
+        }
+
+        ztoolkit.log(`OCR: Final mode after processing: "${mode}"`);
+
+        this.apiKey = Zotero.Prefs.get(`${config.prefsPrefix}.datalabApiKey`) as string;
+        const mistralApiKey = Zotero.Prefs.get(`${config.prefsPrefix}.mistralApiKey`) as string;
+
+        ztoolkit.log(`OCR: API Keys - DataLab: ${this.apiKey ? "set" : "NOT SET"}, Mistral: ${mistralApiKey ? "set" : "NOT SET"}`);
+
+        // Validate API keys based on mode
+        if (mode === "cloud" && !this.apiKey) {
             new ztoolkit.ProgressWindow("DataLab OCR").createLine({
                 text: "Error: DataLab API Key is missing. Please set it in preferences.",
+                icon: "warning",
+                progress: 100
+            }).show();
+            return;
+        }
+
+        if (mode === "mistral" && !mistralApiKey) {
+            new ztoolkit.ProgressWindow("Mistral OCR").createLine({
+                text: "Error: Mistral API Key is missing. Please set it in preferences.",
                 icon: "warning",
                 progress: 100
             }).show();
@@ -139,7 +164,7 @@ export class DataLabService {
         })();
 
         if (!isPdfAttachment) {
-            new ztoolkit.ProgressWindow("DataLab OCR").createLine({
+            new ztoolkit.ProgressWindow("OCR Error").createLine({
                 text: "Error: Selected item is not a PDF attachment.",
                 icon: "warning",
                 progress: 100
@@ -147,7 +172,11 @@ export class DataLabService {
             return;
         }
 
-        const progressWin = new ztoolkit.ProgressWindow("DataLab OCR");
+        // Dynamic title based on mode
+        const progressTitle = mode === "mistral" ? "Mistral OCR" : mode === "local" ? "Local Marker" : "DataLab OCR";
+        ztoolkit.log(`OCR: Selected mode = "${mode}", title = "${progressTitle}"`);
+
+        const progressWin = new ztoolkit.ProgressWindow(progressTitle);
         const progressLine = progressWin.createLine({
             text: "Starting conversion...",
             progress: 10,
@@ -155,7 +184,7 @@ export class DataLabService {
         progressWin.show();
 
         try {
-            ztoolkit.log("DataLab: Starting path resolution...");
+            ztoolkit.log("OCR: Starting path resolution...");
 
             // 1. Try standard getFilePathAsync
             let filePath: string | false = false;
@@ -196,7 +225,7 @@ export class DataLabService {
 
             ztoolkit.log("DataLab: Final resolved filePath", filePath);
 
-            if (useLocalMarker) {
+            if (mode === "local") {
                 // --- Local Marker Server Mode ---
                 // Uses the simple API: filepath, page_range, force_ocr, paginate_output, output_format
 
@@ -254,6 +283,158 @@ export class DataLabService {
                 });
 
                 await this.saveNote(item, markdown);
+
+                progressLine.changeLine({
+                    text: "Done!",
+                    progress: 100
+                });
+                setTimeout(() => progressWin.close(), 3000);
+
+            } else if (mode === "mistral") {
+                // --- Mistral OCR Mode ---
+                // Multi-step API: upload file, get signed URL, call OCR, extract markdown
+
+                progressLine.changeLine({
+                    text: "Uploading PDF to Mistral...",
+                    progress: 20
+                });
+
+                // Read the file
+                // @ts-ignore
+                const fileData: Uint8Array = await IOUtils.read(filePath);
+                ztoolkit.log(`Mistral: Read ${fileData.length} bytes from file`);
+
+                // Step 1: Upload file to Mistral
+                const uploadBoundary = "----MistralUploadBoundary" + Date.now();
+                const encoder = new TextEncoder();
+
+                let preFile = `--${uploadBoundary}\r\n`;
+                preFile += `Content-Disposition: form-data; name="purpose"\r\n\r\n`;
+                preFile += `ocr`;
+                preFile += `\r\n--${uploadBoundary}\r\n`;
+                preFile += `Content-Disposition: form-data; name="file"; filename="document.pdf"\r\n`;
+                preFile += `Content-Type: application/pdf\r\n\r\n`;
+
+                const postFile = `\r\n--${uploadBoundary}--\r\n`;
+
+                const preBytes = encoder.encode(preFile);
+                const postBytes = encoder.encode(postFile);
+                const uploadBody = new Uint8Array(preBytes.length + fileData.length + postBytes.length);
+                uploadBody.set(preBytes, 0);
+                uploadBody.set(fileData, preBytes.length);
+                uploadBody.set(postBytes, preBytes.length + fileData.length);
+
+                const uploadResponse = await Zotero.HTTP.request("POST", "https://api.mistral.ai/v1/files", {
+                    headers: {
+                        "Authorization": `Bearer ${mistralApiKey}`,
+                        "Content-Type": `multipart/form-data; boundary=${uploadBoundary}`,
+                    },
+                    body: uploadBody,
+                    responseType: "json",
+                });
+
+                // @ts-ignore
+                const uploadResult = uploadResponse.response;
+                ztoolkit.log("Mistral: Upload response", JSON.stringify(uploadResult));
+
+                if (!uploadResult.id) {
+                    throw new Error("Failed to upload file to Mistral");
+                }
+
+                const fileId = uploadResult.id;
+
+                progressLine.changeLine({
+                    text: "Getting signed URL...",
+                    progress: 40
+                });
+
+                // Step 2: Get signed URL
+                const urlResponse = await Zotero.HTTP.request("GET", `https://api.mistral.ai/v1/files/${fileId}/url?expiry=1`, {
+                    headers: {
+                        "Authorization": `Bearer ${mistralApiKey}`,
+                        "Accept": "application/json",
+                    },
+                    responseType: "json",
+                });
+
+                // @ts-ignore
+                const urlResult = urlResponse.response;
+                ztoolkit.log("Mistral: URL response", JSON.stringify(urlResult));
+
+                if (!urlResult.url) {
+                    throw new Error("Failed to get signed URL from Mistral");
+                }
+
+                const signedUrl = urlResult.url;
+
+                progressLine.changeLine({
+                    text: "Processing OCR...",
+                    progress: 60
+                });
+
+                // Step 3: Call OCR endpoint
+                const ocrResponse = await Zotero.HTTP.request("POST", "https://api.mistral.ai/v1/ocr", {
+                    headers: {
+                        "Authorization": `Bearer ${mistralApiKey}`,
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({
+                        model: "mistral-ocr-latest",
+                        document: {
+                            type: "document_url",
+                            document_url: signedUrl
+                        },
+                        include_image_base64: false
+                    }),
+                    responseType: "json",
+                    timeout: 600000, // 10 minutes
+                });
+
+                // @ts-ignore
+                const ocrResult = ocrResponse.response;
+                ztoolkit.log("Mistral: OCR response keys", Object.keys(ocrResult).join(", "));
+
+                // Extract markdown from pages
+                let markdownContent = "";
+                if (ocrResult.pages && Array.isArray(ocrResult.pages)) {
+                    for (const page of ocrResult.pages) {
+                        if (page.markdown) {
+                            markdownContent += page.markdown + "\n\n";
+                        }
+                    }
+                } else if (ocrResult.markdown) {
+                    markdownContent = ocrResult.markdown;
+                } else if (ocrResult.text) {
+                    markdownContent = ocrResult.text;
+                }
+
+                if (!markdownContent) {
+                    throw new Error("Could not extract markdown from Mistral OCR response");
+                }
+
+                progressLine.changeLine({
+                    text: "Saving extracted note...",
+                    progress: 85
+                });
+
+                await this.saveNote(item, markdownContent.trim());
+
+                // Step 4: Delete file from Mistral (cleanup)
+                progressLine.changeLine({
+                    text: "Cleaning up...",
+                    progress: 95
+                });
+
+                try {
+                    await Zotero.HTTP.request("DELETE", `https://api.mistral.ai/v1/files/${fileId}`, {
+                        headers: {
+                            "Authorization": `Bearer ${mistralApiKey}`,
+                        },
+                    });
+                    ztoolkit.log("Mistral: File deleted successfully");
+                } catch (deleteErr) {
+                    ztoolkit.log("Mistral: Failed to delete file (non-critical)", deleteErr);
+                }
 
                 progressLine.changeLine({
                     text: "Done!",

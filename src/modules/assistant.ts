@@ -16,7 +16,7 @@ import {
     ColumnPreset,
     defaultColumns,
 } from "./chat/tableTypes";
-import { DataLabService } from "./datalab";
+import { OcrService } from "./ocr";
 
 // Stored messages for conversation continuity (loaded from persistence)
 let conversationMessages: ChatMessage[] = [];
@@ -35,7 +35,7 @@ let currentTableConfig: TableConfig | null = null;
 let currentTableData: TableData | null = null;
 
 // DataLabs service for PDF-to-note conversion
-const dataLabService = new DataLabService();
+const ocrService = new OcrService();
 
 
 export class Assistant {
@@ -1593,13 +1593,13 @@ Task: ${columnPrompt}`;
         }
 
         // No notes - need to process PDF with DataLabs first
-        const pdf = dataLabService.getFirstPdfAttachment(item);
+        const pdf = ocrService.getFirstPdfAttachment(item);
         if (!pdf) {
             throw new Error("No PDF attachment found");
         }
 
         // Check if DataLabs already processed this (note with same title as parent)
-        if (dataLabService.hasExistingNote(item)) {
+        if (ocrService.hasExistingNote(item)) {
             // Note exists but wasn't in noteIds? Refresh and try again
             const refreshedNoteIds = item.getNotes();
             if (refreshedNoteIds.length > 0) {
@@ -1609,7 +1609,7 @@ Task: ${columnPrompt}`;
 
         // Process PDF with DataLabs - this creates a note
         Zotero.debug("[Seer AI] Processing PDF with DataLabs...");
-        await dataLabService.convertToMarkdown(pdf);
+        await ocrService.convertToMarkdown(pdf);
 
         // Wait a moment for the note to be saved
         await new Promise(r => setTimeout(r, 500));
