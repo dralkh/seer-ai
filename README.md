@@ -1,6 +1,11 @@
 # Seer AI
 
-<img width="502" height="353" alt="image" src="https://github.com/user-attachments/assets/3ccb2e0d-908e-43e3-99f4-e2fc5b3ff86d" />
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/70e618aa-5c92-45fc-bec0-bf253de09ad4" 
+       alt="My diagram"
+       width="300"
+       height="300">
+</p>
 
 https://github.com/user-attachments/assets/b0847022-d1ab-4e98-8e3a-607d1073db8f
 
