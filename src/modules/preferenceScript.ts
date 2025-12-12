@@ -201,6 +201,7 @@ function bindPrefEvents() {
   bindInput(`zotero-prefpane-${config.addonRef}-datalabApiKey`, "datalabApiKey");
   bindInput(`zotero-prefpane-${config.addonRef}-mistralApiKey`, "mistralApiKey");
   bindInput(`zotero-prefpane-${config.addonRef}-datalabMaxConcurrent`, "datalabMaxConcurrent");
+  bindInput(`zotero-prefpane-${config.addonRef}-aiMaxConcurrent`, "aiMaxConcurrent");
 
   // Local-specific settings
   bindCheckbox(`zotero-prefpane-${config.addonRef}-localForceOcr`, "localForceOcr");

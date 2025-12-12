@@ -1298,51 +1298,118 @@ export class Assistant {
         if (!currentTableConfig) return;
 
         const addedIds = currentTableConfig.addedPaperIds || [];
-        if (addedIds.length === 0) return;
+        if (addedIds.length === 0) {
+            Zotero.debug("[Seer AI] No papers added to table");
+            return;
+        }
 
         const columns = currentTableConfig.columns || defaultColumns;
         const computedColumns = columns.filter(col => col.type === 'computed' && col.visible);
 
-        if (computedColumns.length === 0) return;
+        if (computedColumns.length === 0) {
+            Zotero.debug("[Seer AI] No computed columns visible");
+            return;
+        }
 
-        // Find all cells that need generation (computed columns with empty values)
-        const tableWrapper = doc.querySelector('.table-wrapper');
-        if (!tableWrapper) return;
+        // Get max concurrent from settings (AI-specific setting for table generation)
+        const maxConcurrent = (Zotero.Prefs.get(`${addon.data.config.prefsPrefix}.aiMaxConcurrent`) as number) || 5;
+        Zotero.debug(`[Seer AI] AI Max concurrent queries: ${maxConcurrent}`);
 
-        const cells = tableWrapper.querySelectorAll('td');
-        let generated = 0;
-        let failed = 0;
+        // Build list of generation tasks: { paperId, col, noteIds }
+        interface GenerationTask {
+            paperId: number;
+            col: TableColumn;
+            noteIds: number[];
+            item: Zotero.Item;
+        }
+        const tasks: GenerationTask[] = [];
 
         for (const paperId of addedIds) {
-            const item = Zotero.Items.get(paperId);
-            if (!item || !item.isRegularItem()) continue;
+            const paperItem = Zotero.Items.get(paperId);
+            if (!paperItem || !paperItem.isRegularItem()) continue;
 
-            const noteIds = item.getNotes();
+            const noteIds = paperItem.getNotes();
 
             for (const col of computedColumns) {
                 // Check if already has value
                 const existingValue = (currentTableData?.rows.find(r => r.paperId === paperId)?.data[col.id]) || '';
                 if (existingValue.trim()) continue; // Skip if already has content
 
-                // Generate content
-                try {
-                    const content = await this.generateColumnContent(item, col, noteIds);
-                    if (content) {
-                        // Update in currentTableData
-                        const row = currentTableData?.rows.find(r => r.paperId === paperId);
-                        if (row) {
-                            row.data[col.id] = content;
-                        }
-                        generated++;
-                    }
-                } catch (e) {
-                    Zotero.debug(`[Seer AI] Error generating for ${paperId}/${col.id}: ${e}`);
-                    failed++;
-                }
+                tasks.push({ paperId, col, noteIds, item: paperItem });
             }
         }
 
-        // Refresh the table
+        if (tasks.length === 0) {
+            Zotero.debug("[Seer AI] No empty cells to generate");
+            return;
+        }
+
+        Zotero.debug(`[Seer AI] ${tasks.length} cells to generate`);
+
+        // Find and update the Generate All button to show progress
+        const generateBtn = doc.querySelector('.table-btn') as HTMLButtonElement | null;
+        const originalBtnText = generateBtn?.innerText || "⚡ Generate All";
+        let completed = 0;
+        let generated = 0;
+        let failed = 0;
+
+        const updateProgress = () => {
+            if (generateBtn) {
+                generateBtn.innerText = `⏳ ${completed}/${tasks.length}`;
+                generateBtn.disabled = true;
+                generateBtn.style.cursor = "wait";
+            }
+        };
+
+        // Process a single task
+        const processTask = async (task: GenerationTask): Promise<void> => {
+            try {
+                const content = await this.generateColumnContent(task.item, task.col, task.noteIds);
+                if (content) {
+                    // Update in currentTableData
+                    const row = currentTableData?.rows.find(r => r.paperId === task.paperId);
+                    if (row) {
+                        row.data[task.col.id] = content;
+                    }
+                    generated++;
+                }
+            } catch (e) {
+                Zotero.debug(`[Seer AI] Error generating for ${task.paperId}/${task.col.id}: ${e}`);
+                failed++;
+            } finally {
+                completed++;
+                updateProgress();
+            }
+        };
+
+        // Process tasks in parallel batches
+        updateProgress();
+        for (let i = 0; i < tasks.length; i += maxConcurrent) {
+            const batch = tasks.slice(i, i + maxConcurrent);
+            Zotero.debug(`[Seer AI] Processing batch ${Math.floor(i / maxConcurrent) + 1} (${batch.length} tasks)`);
+            await Promise.all(batch.map(processTask));
+
+            // Refresh table periodically to show progress
+            if (i + maxConcurrent < tasks.length) {
+                this.debounceTableRefresh(doc, item);
+            }
+        }
+
+        // Save the updated table data
+        const tableStore = getTableStore();
+        await tableStore.saveConfig(currentTableConfig!);
+
+        // Restore button
+        if (generateBtn) {
+            generateBtn.innerText = `✓ Done (${generated}/${tasks.length})`;
+            generateBtn.disabled = false;
+            generateBtn.style.cursor = "pointer";
+            setTimeout(() => {
+                generateBtn.innerText = originalBtnText;
+            }, 2000);
+        }
+
+        // Final refresh
         this.debounceTableRefresh(doc, item);
 
         Zotero.debug(`[Seer AI] Generation complete: ${generated} generated, ${failed} failed`);

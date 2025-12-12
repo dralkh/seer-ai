@@ -9,6 +9,7 @@ pref("datalabUrl", "http://localhost:8001");
 pref("datalabApiKey", "");
 pref("mistralApiKey", "");
 pref("datalabMaxConcurrent", 5);
+pref("aiMaxConcurrent", 5);
 pref("localForceOcr", true);
 pref("cloudForceOcr", false);
 pref("cloudUseLlm", false);

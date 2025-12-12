@@ -18,6 +18,7 @@ declare namespace _ZoteroTypes {
       "datalabApiKey": string;
       "mistralApiKey": string;
       "datalabMaxConcurrent": number;
+      "aiMaxConcurrent": number;
       "localForceOcr": boolean;
       "cloudForceOcr": boolean;
       "cloudUseLlm": boolean;
