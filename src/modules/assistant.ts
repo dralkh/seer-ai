@@ -733,110 +733,188 @@ export class Assistant {
     }
 
     /**
-     * Show paper picker dialog for adding papers to the table
+     * Show paper picker as a beautiful inline dropdown panel
      */
     private static async showTablePaperPicker(doc: Document, item: Zotero.Item): Promise<void> {
-        // Remove existing picker
-        const existing = doc.getElementById("table-paper-picker");
+        // Toggle existing dropdown
+        const existing = doc.getElementById("table-paper-picker-dropdown") as HTMLElement | null;
         if (existing) {
-            existing.remove();
+            // Animate out
+            existing.style.opacity = "0";
+            existing.style.transform = "translateY(-10px)";
+            setTimeout(() => existing.remove(), 200);
             return;
         }
 
-        const win = doc.defaultView;
-        const isDarkMode = (win as any)?.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false;
+        // Find the toolbar and table container to position dropdown
+        const tabContent = doc.getElementById("tab-content");
+        if (!tabContent) return;
 
-        // Create overlay
-        const overlay = ztoolkit.UI.createElement(doc, "div", {
-            properties: { id: "table-paper-picker" },
+        // Create dropdown panel
+        const dropdown = ztoolkit.UI.createElement(doc, "div", {
+            properties: { id: "table-paper-picker-dropdown" },
             styles: {
-                position: "fixed",
-                top: "0",
-                left: "0",
-                width: "100%",
-                height: "100%",
-                backgroundColor: "rgba(0,0,0,0.5)",
-                display: "flex",
-                justifyContent: "center",
-                alignItems: "center",
-                zIndex: "10000"
+                backgroundColor: "var(--background-primary)",
+                borderRadius: "8px",
+                padding: "0",
+                boxShadow: "0 4px 16px rgba(0,0,0,0.12)",
+                overflow: "hidden",
+                border: "1px solid var(--border-primary)",
+                transition: "all 0.2s ease-out",
+                opacity: "0",
+                transform: "translateY(-10px)",
+                margin: "8px"
             }
         });
 
-        // Create dialog
-        const dialog = ztoolkit.UI.createElement(doc, "div", {
+        // Header with gradient
+        const header = ztoolkit.UI.createElement(doc, "div", {
             styles: {
-                backgroundColor: `var(--background-primary, ${isDarkMode ? '#333' : '#fafafa'})`,
-                color: `var(--text-primary, ${isDarkMode ? '#eee' : '#212121'})`,
-                borderRadius: "12px",
-                padding: "16px",
-                maxWidth: "500px",
-                width: "90%",
-                maxHeight: "70vh",
+                background: "linear-gradient(135deg, var(--highlight-primary) 0%, color-mix(in srgb, var(--highlight-primary) 80%, purple) 100%)",
+                padding: "12px 16px",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: "12px"
+            }
+        });
+
+        const headerTitle = ztoolkit.UI.createElement(doc, "div", {
+            properties: { innerText: "📚 Add Papers" },
+            styles: {
+                fontSize: "14px",
+                fontWeight: "600",
+                color: "var(--highlight-text)",
+                textShadow: "0 1px 2px rgba(0,0,0,0.1)"
+            }
+        });
+        header.appendChild(headerTitle);
+
+        // Close button in header
+        const closeBtn = ztoolkit.UI.createElement(doc, "button", {
+            properties: { innerText: "✕" },
+            styles: {
+                background: "rgba(0,0,0,0.1)",
+                border: "none",
+                borderRadius: "50%",
+                width: "24px",
+                height: "24px",
+                cursor: "pointer",
+                color: "var(--highlight-text)",
+                fontSize: "12px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                transition: "background 0.2s"
+            },
+            listeners: [{
+                type: "click",
+                listener: () => {
+                    dropdown.style.opacity = "0";
+                    dropdown.style.transform = "translateY(-10px)";
+                    setTimeout(() => {
+                        dropdown.remove();
+                        if (currentContainer && currentItem) {
+                            this.renderInterface(currentContainer, currentItem);
+                        }
+                    }, 200);
+                }
+            }]
+        });
+        closeBtn.addEventListener("mouseenter", () => { closeBtn.style.background = "rgba(0,0,0,0.15)"; });
+        closeBtn.addEventListener("mouseleave", () => { closeBtn.style.background = "rgba(0,0,0,0.1)"; });
+        header.appendChild(closeBtn);
+        dropdown.appendChild(header);
+
+        // Content area
+        const content = ztoolkit.UI.createElement(doc, "div", {
+            styles: {
+                padding: "12px 16px",
                 display: "flex",
                 flexDirection: "column",
-                gap: "12px",
-                boxShadow: "0 8px 32px rgba(0,0,0,0.2)"
+                gap: "10px"
             }
         });
 
-        // Title
-        const title = ztoolkit.UI.createElement(doc, "div", {
-            properties: { innerText: "➕ Add Papers to Table" },
-            styles: { fontSize: "16px", fontWeight: "600" }
-        });
-        dialog.appendChild(title);
-
-        // Filter by library/collection
-        const filterRow = ztoolkit.UI.createElement(doc, "div", {
-            styles: { display: "flex", gap: "8px", alignItems: "center" }
+        // Filter and search row
+        const controlsRow = ztoolkit.UI.createElement(doc, "div", {
+            styles: {
+                display: "flex",
+                gap: "8px",
+                alignItems: "center"
+            }
         });
 
         const filterSelect = ztoolkit.UI.createElement(doc, "select", {
             styles: {
-                flex: "1",
-                padding: "8px",
+                flex: "0 0 auto",
+                minWidth: "140px",
+                padding: "8px 10px",
                 border: "1px solid var(--border-primary)",
-                borderRadius: "4px",
-                fontSize: "13px"
+                borderRadius: "8px",
+                fontSize: "12px",
+                backgroundColor: "var(--background-secondary)",
+                color: "var(--text-primary)",
+                cursor: "pointer",
+                outline: "none",
+                transition: "border-color 0.2s, box-shadow 0.2s"
             }
         }) as HTMLSelectElement;
+        filterSelect.addEventListener("focus", () => {
+            filterSelect.style.borderColor = "var(--highlight-primary)";
+            filterSelect.style.boxShadow = "0 0 0 3px color-mix(in srgb, var(--highlight-primary) 20%, transparent)";
+        });
+        filterSelect.addEventListener("blur", () => {
+            filterSelect.style.borderColor = "var(--border-primary)";
+            filterSelect.style.boxShadow = "none";
+        });
         this.populateFilterSelect(filterSelect);
-        filterRow.appendChild(filterSelect);
-        dialog.appendChild(filterRow);
+        controlsRow.appendChild(filterSelect);
 
-        // Search
         const searchInput = ztoolkit.UI.createElement(doc, "input", {
-            attributes: { type: "text", placeholder: "Search papers..." },
-            styles: {
-                width: "100%",
-                padding: "8px",
-                border: "1px solid var(--border-primary)",
-                borderRadius: "4px",
-                fontSize: "13px"
-            }
-        }) as HTMLInputElement;
-        dialog.appendChild(searchInput);
-
-        // Paper list container
-        const listContainer = ztoolkit.UI.createElement(doc, "div", {
+            attributes: { type: "text", placeholder: "🔍 Search papers..." },
             styles: {
                 flex: "1",
+                padding: "8px 12px",
+                border: "1px solid var(--border-primary)",
+                borderRadius: "8px",
+                fontSize: "12px",
+                backgroundColor: "var(--background-secondary)",
+                color: "var(--text-primary)",
+                outline: "none",
+                transition: "border-color 0.2s, box-shadow 0.2s"
+            }
+        }) as HTMLInputElement;
+        searchInput.addEventListener("focus", () => {
+            searchInput.style.borderColor = "var(--highlight-primary)";
+            searchInput.style.boxShadow = "0 0 0 3px color-mix(in srgb, var(--highlight-primary) 20%, transparent)";
+        });
+        searchInput.addEventListener("blur", () => {
+            searchInput.style.borderColor = "var(--border-primary)";
+            searchInput.style.boxShadow = "none";
+        });
+        controlsRow.appendChild(searchInput);
+        content.appendChild(controlsRow);
+
+        // Paper list container with custom scrollbar styling
+        const listContainer = ztoolkit.UI.createElement(doc, "div", {
+            styles: {
+                maxHeight: "280px",
                 overflowY: "auto",
                 border: "1px solid var(--border-primary)",
-                borderRadius: "4px",
-                maxHeight: "300px"
+                borderRadius: "8px",
+                backgroundColor: "var(--background-secondary)"
             }
         });
-        dialog.appendChild(listContainer);
+        content.appendChild(listContainer);
 
-        // State for infinite scroll and Add All functionality
+        // State for infinite scroll and Add All
         let allFilteredItems: Zotero.Item[] = [];
         let displayedCount = 0;
         const BATCH_SIZE = 50;
         let isLoadingMore = false;
 
-        // Render a batch of papers to the list
+        // Render papers with beautiful styling
         const renderPaperBatch = (items: Zotero.Item[], startIndex: number, count: number) => {
             const endIndex = Math.min(startIndex + count, items.length);
             for (let i = startIndex; i < endIndex; i++) {
@@ -849,16 +927,85 @@ export class Assistant {
                 const row = ztoolkit.UI.createElement(doc, "div", {
                     attributes: { "data-paper-id": String(paperItem.id) },
                     styles: {
-                        padding: "8px 12px",
+                        padding: "10px 14px",
                         borderBottom: "1px solid var(--border-primary)",
                         cursor: "pointer",
                         display: "flex",
                         justifyContent: "space-between",
-                        alignItems: "center"
+                        alignItems: "center",
+                        transition: "background-color 0.15s, transform 0.1s"
+                    }
+                });
+
+                const info = ztoolkit.UI.createElement(doc, "div", {
+                    styles: { flex: "1", overflow: "hidden", marginRight: "10px" }
+                });
+
+                // Clickable title to open PDF
+                const titleEl = ztoolkit.UI.createElement(doc, "div", {
+                    properties: { innerText: paperTitle },
+                    styles: {
+                        fontSize: "12px",
+                        fontWeight: "500",
+                        overflow: "hidden",
+                        lineHeight: "1.3",
+                        maxHeight: "2.6em",
+                        color: "var(--highlight-primary)",
+                        cursor: "pointer",
+                        transition: "color 0.15s",
+                        wordBreak: "break-word"
                     },
                     listeners: [{
                         type: "click",
-                        listener: async () => {
+                        listener: async (e: Event) => {
+                            e.stopPropagation();
+                            const attachmentIds = paperItem.getAttachments();
+                            for (const attachId of attachmentIds) {
+                                const attachment = Zotero.Items.get(attachId);
+                                if (attachment && attachment.isPDFAttachment && attachment.isPDFAttachment()) {
+                                    await Zotero.Reader.open(attachment.id);
+                                    return;
+                                }
+                            }
+                            const zp = Zotero.getActiveZoteroPane();
+                            if (zp) zp.selectItem(paperItem.id);
+                        }
+                    }]
+                });
+                titleEl.addEventListener("mouseenter", () => { (titleEl as HTMLElement).style.textDecoration = "underline"; });
+                titleEl.addEventListener("mouseleave", () => { (titleEl as HTMLElement).style.textDecoration = "none"; });
+
+                const metaEl = ztoolkit.UI.createElement(doc, "div", {
+                    properties: { innerText: `${authorStr}${year ? ` • ${year}` : ''}` },
+                    styles: { fontSize: "11px", color: "var(--text-secondary)", marginTop: "2px" }
+                });
+                info.appendChild(titleEl);
+                info.appendChild(metaEl);
+                row.appendChild(info);
+
+                // Add button with animation
+                const addBtn = ztoolkit.UI.createElement(doc, "button", {
+                    properties: { innerText: "+" },
+                    styles: {
+                        width: "28px",
+                        height: "28px",
+                        borderRadius: "50%",
+                        border: "2px solid var(--highlight-primary)",
+                        backgroundColor: "transparent",
+                        color: "var(--highlight-primary)",
+                        fontSize: "16px",
+                        fontWeight: "bold",
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        transition: "all 0.2s ease",
+                        flexShrink: "0"
+                    },
+                    listeners: [{
+                        type: "click",
+                        listener: async (e: Event) => {
+                            e.stopPropagation();
                             if (currentTableConfig) {
                                 if (!currentTableConfig.addedPaperIds) {
                                     currentTableConfig.addedPaperIds = [];
@@ -867,73 +1014,36 @@ export class Assistant {
                                     currentTableConfig.addedPaperIds.push(paperItem.id);
                                     const tableStore = getTableStore();
                                     await tableStore.saveConfig(currentTableConfig);
-                                    row.remove();
-                                    // Remove from allFilteredItems
-                                    const idx = allFilteredItems.findIndex(item => item.id === paperItem.id);
-                                    if (idx !== -1) {
-                                        allFilteredItems.splice(idx, 1);
-                                        displayedCount--;
-                                    }
+                                    // Animate removal
+                                    row.style.transform = "translateX(20px)";
+                                    row.style.opacity = "0";
+                                    setTimeout(() => {
+                                        row.remove();
+                                        const idx = allFilteredItems.findIndex(item => item.id === paperItem.id);
+                                        if (idx !== -1) {
+                                            allFilteredItems.splice(idx, 1);
+                                            displayedCount--;
+                                        }
+                                    }, 150);
                                 }
                             }
                         }
                     }]
                 });
-
-                const info = ztoolkit.UI.createElement(doc, "div", {
-                    styles: { flex: "1", overflow: "hidden" }
+                addBtn.addEventListener("mouseenter", () => {
+                    addBtn.style.backgroundColor = "var(--highlight-primary)";
+                    addBtn.style.color = "var(--highlight-text)";
+                    addBtn.style.transform = "scale(1.1)";
                 });
-                const titleEl = ztoolkit.UI.createElement(doc, "div", {
-                    properties: { innerText: paperTitle },
-                    styles: {
-                        fontSize: "13px",
-                        fontWeight: "500",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                        cursor: "pointer",
-                        color: "var(--highlight-primary)"
-                    },
-                    listeners: [{
-                        type: "click",
-                        listener: async (e: Event) => {
-                            e.stopPropagation(); // Don't add the paper, just open PDF
-                            // Find PDF attachment and open it
-                            const attachmentIds = paperItem.getAttachments();
-                            for (const attachId of attachmentIds) {
-                                const attachment = Zotero.Items.get(attachId);
-                                if (attachment && attachment.isPDFAttachment && attachment.isPDFAttachment()) {
-                                    // Open the PDF in Zotero's reader
-                                    await Zotero.Reader.open(attachment.id);
-                                    return;
-                                }
-                            }
-                            // Fallback: if no PDF, just select the item in the library
-                            const zp = Zotero.getActiveZoteroPane();
-                            if (zp) {
-                                zp.selectItem(paperItem.id);
-                            }
-                        }
-                    }]
-                });
-                // Add hover underline effect
-                titleEl.addEventListener("mouseenter", () => { (titleEl as HTMLElement).style.textDecoration = "underline"; });
-                titleEl.addEventListener("mouseleave", () => { (titleEl as HTMLElement).style.textDecoration = "none"; });
-                const metaEl = ztoolkit.UI.createElement(doc, "div", {
-                    properties: { innerText: `${authorStr}${year ? ` (${year})` : ''}` },
-                    styles: { fontSize: "11px", color: "var(--text-secondary)" }
-                });
-                info.appendChild(titleEl);
-                info.appendChild(metaEl);
-                row.appendChild(info);
-
-                const addBtn = ztoolkit.UI.createElement(doc, "span", {
-                    properties: { innerText: "+" },
-                    styles: { fontSize: "18px", fontWeight: "bold", color: "var(--highlight-primary)" }
+                addBtn.addEventListener("mouseleave", () => {
+                    addBtn.style.backgroundColor = "transparent";
+                    addBtn.style.color = "var(--highlight-primary)";
+                    addBtn.style.transform = "scale(1)";
                 });
                 row.appendChild(addBtn);
 
-                row.addEventListener("mouseenter", () => { row.style.backgroundColor = "var(--background-secondary)"; });
+                // Row hover effect
+                row.addEventListener("mouseenter", () => { row.style.backgroundColor = "var(--background-primary)"; });
                 row.addEventListener("mouseleave", () => { row.style.backgroundColor = ""; });
 
                 listContainer.appendChild(row);
@@ -941,7 +1051,7 @@ export class Assistant {
             displayedCount = endIndex;
         };
 
-        // Load more papers when scrolling near the end
+        // Infinite scroll
         const loadMorePapers = () => {
             if (isLoadingMore || displayedCount >= allFilteredItems.length) return;
             isLoadingMore = true;
@@ -949,24 +1059,29 @@ export class Assistant {
             isLoadingMore = false;
         };
 
-        // Infinite scroll handler
         listContainer.addEventListener("scroll", () => {
             const scrollTop = listContainer.scrollTop;
             const scrollHeight = listContainer.scrollHeight;
             const clientHeight = listContainer.clientHeight;
-            // Load more when within 50px of the bottom
             if (scrollHeight - scrollTop - clientHeight < 50) {
                 loadMorePapers();
             }
         });
 
-        // Load papers based on filter
+        // Load papers
         const loadPapers = async () => {
             listContainer.innerHTML = "";
             allFilteredItems = [];
             displayedCount = 0;
             const filterValue = filterSelect.value;
             const searchQuery = searchInput.value.toLowerCase();
+
+            // Show loading
+            const loadingEl = ztoolkit.UI.createElement(doc, "div", {
+                properties: { innerText: "⏳ Loading papers..." },
+                styles: { padding: "20px", textAlign: "center", color: "var(--text-secondary)" }
+            });
+            listContainer.appendChild(loadingEl);
 
             let items: Zotero.Item[] = [];
             try {
@@ -988,7 +1103,6 @@ export class Assistant {
                     }
                 }
 
-                // Filter by search and already added (keep all matching, not limited to 50)
                 const addedIds = new Set(currentTableConfig?.addedPaperIds || []);
                 allFilteredItems = items.filter(i => {
                     if (addedIds.has(i.id)) return false;
@@ -998,19 +1112,25 @@ export class Assistant {
                     return itemTitle.includes(searchQuery) || creators.includes(searchQuery);
                 });
 
+                listContainer.innerHTML = "";
+
                 if (allFilteredItems.length === 0) {
                     const emptyMsg = ztoolkit.UI.createElement(doc, "div", {
                         properties: { innerText: "No papers found" },
-                        styles: { padding: "20px", textAlign: "center", color: "var(--text-tertiary)" }
+                        styles: { padding: "30px", textAlign: "center", color: "var(--text-tertiary)", fontSize: "13px" }
                     });
                     listContainer.appendChild(emptyMsg);
                     return;
                 }
 
-                // Render first batch
                 renderPaperBatch(allFilteredItems, 0, BATCH_SIZE);
             } catch (e) {
-                Zotero.debug(`[Seer AI] Error loading papers: ${e}`);
+                listContainer.innerHTML = "";
+                const errorMsg = ztoolkit.UI.createElement(doc, "div", {
+                    properties: { innerText: `Error loading papers: ${e}` },
+                    styles: { padding: "20px", textAlign: "center", color: "#c62828" }
+                });
+                listContainer.appendChild(errorMsg);
             }
         };
 
@@ -1020,29 +1140,35 @@ export class Assistant {
             (searchInput as any)._debounce = setTimeout(loadPapers, 300);
         });
 
-        // Load initial papers
-        await loadPapers();
-
-        // Button row with Add All and Done
+        // Button row with gradient background
         const buttonRow = ztoolkit.UI.createElement(doc, "div", {
-            styles: { display: "flex", justifyContent: "space-between", gap: "8px" }
+            styles: {
+                display: "flex",
+                justifyContent: "space-between",
+                gap: "10px",
+                paddingTop: "8px",
+                borderTop: "1px solid var(--border-primary)"
+            }
         });
 
-        // Add All button - adds ALL matching papers, not just visible ones
+        // Add All button
         const addAllBtn = ztoolkit.UI.createElement(doc, "button", {
-            properties: { innerText: "Add All" },
+            properties: { innerText: "➕ Add All" },
             styles: {
-                padding: "8px 16px",
-                border: "1px solid var(--border-primary)",
-                borderRadius: "6px",
-                backgroundColor: "var(--background-secondary)",
-                color: "var(--text-primary)",
-                cursor: "pointer"
+                padding: "10px 18px",
+                border: "none",
+                borderRadius: "8px",
+                background: "linear-gradient(135deg, var(--highlight-primary) 0%, color-mix(in srgb, var(--highlight-primary) 80%, purple) 100%)",
+                color: "var(--highlight-text)",
+                cursor: "pointer",
+                fontWeight: "600",
+                fontSize: "12px",
+                transition: "transform 0.15s, box-shadow 0.15s",
+                boxShadow: "0 2px 8px rgba(0,0,0,0.15)"
             },
             listeners: [{
                 type: "click",
                 listener: async () => {
-                    // Add ALL matching papers (not just visible ones)
                     let count = 0;
                     for (const paperItem of allFilteredItems) {
                         if (currentTableConfig && !currentTableConfig.addedPaperIds.includes(paperItem.id)) {
@@ -1050,69 +1176,85 @@ export class Assistant {
                             count++;
                         }
                     }
-                    // Clear the list since all are added
                     listContainer.innerHTML = "";
                     allFilteredItems = [];
                     displayedCount = 0;
-
-                    // Show empty state
                     const emptyMsg = ztoolkit.UI.createElement(doc, "div", {
-                        properties: { innerText: "No papers found" },
-                        styles: { padding: "20px", textAlign: "center", color: "var(--text-tertiary)" }
+                        properties: { innerText: "All papers added!" },
+                        styles: { padding: "30px", textAlign: "center", color: "var(--text-secondary)", fontSize: "13px" }
                     });
                     listContainer.appendChild(emptyMsg);
-
-                    // Show count feedback inline
                     if (count > 0) {
                         (addAllBtn as HTMLElement).innerText = `✓ Added ${count}`;
-                        setTimeout(() => {
-                            (addAllBtn as HTMLElement).innerText = "Add All";
-                        }, 1500);
+                        setTimeout(() => { (addAllBtn as HTMLElement).innerText = "➕ Add All"; }, 1500);
                     }
                 }
             }]
         });
+        addAllBtn.addEventListener("mouseenter", () => {
+            addAllBtn.style.transform = "translateY(-2px)";
+            addAllBtn.style.boxShadow = "0 4px 12px rgba(0,0,0,0.2)";
+        });
+        addAllBtn.addEventListener("mouseleave", () => {
+            addAllBtn.style.transform = "";
+            addAllBtn.style.boxShadow = "0 2px 8px rgba(0,0,0,0.15)";
+        });
         buttonRow.appendChild(addAllBtn);
 
+        // Done button
         const doneBtn = ztoolkit.UI.createElement(doc, "button", {
             properties: { innerText: "Done" },
             styles: {
-                padding: "8px 16px",
-                border: "none",
-                borderRadius: "6px",
-                backgroundColor: "var(--highlight-primary)",
-                color: "var(--highlight-text)",
+                padding: "10px 18px",
+                border: "1px solid var(--border-primary)",
+                borderRadius: "8px",
+                backgroundColor: "var(--background-secondary)",
+                color: "var(--text-primary)",
                 cursor: "pointer",
-                fontWeight: "600"
+                fontWeight: "500",
+                fontSize: "12px",
+                transition: "background-color 0.15s"
             },
             listeners: [{
                 type: "click",
                 listener: () => {
-                    overlay.remove();
-                    if (currentContainer && currentItem) {
-                        this.renderInterface(currentContainer, currentItem);
-                    }
+                    dropdown.style.opacity = "0";
+                    dropdown.style.transform = "translateY(-10px)";
+                    setTimeout(() => {
+                        dropdown.remove();
+                        if (currentContainer && currentItem) {
+                            this.renderInterface(currentContainer, currentItem);
+                        }
+                    }, 200);
                 }
             }]
         });
+        doneBtn.addEventListener("mouseenter", () => { doneBtn.style.backgroundColor = "var(--background-primary)"; });
+        doneBtn.addEventListener("mouseleave", () => { doneBtn.style.backgroundColor = "var(--background-secondary)"; });
         buttonRow.appendChild(doneBtn);
-        dialog.appendChild(buttonRow);
+        content.appendChild(buttonRow);
 
-        overlay.appendChild(dialog);
-        overlay.addEventListener("click", (e) => {
-            if (e.target === overlay) {
-                overlay.remove();
-                if (currentContainer && currentItem) {
-                    this.renderInterface(currentContainer, currentItem);
-                }
-            }
-        });
+        dropdown.appendChild(content);
 
-        if (doc.body) {
-            doc.body.appendChild(overlay);
+        // Insert dropdown after the toolbar
+        const toolbar = tabContent.querySelector('.table-toolbar');
+        if (toolbar && toolbar.parentNode) {
+            toolbar.parentNode.insertBefore(dropdown, toolbar.nextSibling);
         } else {
-            (doc.documentElement || doc).appendChild(overlay);
+            tabContent.insertBefore(dropdown, tabContent.firstChild);
         }
+
+        // Auto-focus search
+        setTimeout(() => searchInput.focus(), 100);
+
+        // Animate in
+        setTimeout(() => {
+            dropdown.style.opacity = "1";
+            dropdown.style.transform = "translateY(0)";
+        }, 10);
+
+        // Load papers
+        await loadPapers();
     }
 
     /**
