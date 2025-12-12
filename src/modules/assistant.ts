@@ -1069,6 +1069,16 @@ export class Assistant {
                                     currentTableConfig.addedPaperIds.push(paperItem.id);
                                     const tableStore = getTableStore();
                                     await tableStore.saveConfig(currentTableConfig);
+
+                                    // Update table view immediately
+                                    const tableWrapper = doc.querySelector('.table-wrapper');
+                                    if (tableWrapper) {
+                                        const newData = await this.loadTableData();
+                                        const newTable = this.createPapersTable(doc, newData);
+                                        tableWrapper.innerHTML = "";
+                                        tableWrapper.appendChild(newTable);
+                                    }
+
                                     // Animate removal
                                     row.style.transform = "translateX(20px)";
                                     row.style.opacity = "0";
@@ -1365,6 +1375,9 @@ export class Assistant {
             // Get paper item
             const paperItem = Zotero.Items.get(paperId);
             if (!paperItem || !paperItem.isRegularItem()) continue;
+
+            // Check if item has notes - skip if no notes to save resources
+            if (paperItem.getNotes().length === 0) continue;
 
             const existingRowData = currentTableData?.rows.find(r => r.paperId === paperId);
 
