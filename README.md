@@ -295,11 +295,10 @@ Moving beyond keyword matching to understanding the meaning of your queries.
 
 ### 6. Semantic Scholar Enhancements (WIP)
 - **Saved Search History** — Saved search history shown in drop down of Past searches button - when clicking one of the list it would return user to previous search operation with all data saved and persisted - with button clear saved search history.
-- **Add paper & Add to table automatically**: Extracts paper to your zotero library, find and attach pdf from semantic scholar - if failed would fall back to integrated find full text from zotero
 
 
 ### Others
-Citations referencing within tables and chat
+Citations referencing within tables and chat on generation -
 MCP
 Connectors
 UI revamp
@@ -329,6 +328,9 @@ This project is licensed under the MIT License - [LICENSE](LICENSE).
 - [Zotero](https://www.zotero.org) for the amazing reference manager
 - [Zotero Plugin Template](https://github.com/windingwind/zotero-plugin-template) for the plugin scaffolding
 - [DataLab](https://datalab.to) for OCR services
+- [Mistral](https://mistral.ai) for OCR services
+- [Semantic Scholar](https://www.semanticscholar.org/product/api) for Semantic Scholar API
+- [Firecrawl](https://firecrawl.io) for URL discovery
 
 ---
 

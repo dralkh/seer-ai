@@ -28,6 +28,7 @@ import {
     FIELDS_OF_STUDY,
     PUBLICATION_TYPES,
 } from "./semanticScholar";
+import { firecrawlService, PdfDiscoveryResult } from "./firecrawl";
 
 // Debounce timer for autocomplete
 let autocompleteTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -57,6 +58,9 @@ let isSearching = false;
 
 // Cache for Unpaywall PDF URLs (paperId -> pdfUrl)
 const unpaywallPdfCache = new Map<string, string>();
+
+// Cache for Firecrawl PDF discovery results (paperId -> result)
+const firecrawlPdfCache = new Map<string, PdfDiscoveryResult>();
 
 // Filter presets
 interface FilterPreset {
@@ -2124,7 +2128,169 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
                             Zotero.launchURL(pdfUrl);
                         });
                     } else {
-                        // No PDF found
+                        // Unpaywall failed - try Firecrawl as fallback (if configured)
+                        if (firecrawlService.isConfigured()) {
+                            pdfBadge.innerText = "🔥 Searching...";
+                            pdfBadge.style.backgroundColor = "#fff8e1";
+                            pdfBadge.style.color = "#ff8f00";
+
+                            firecrawlService.researchSearch(
+                                paper.title,
+                                paper.authors?.map(a => a.name),
+                                paper.externalIds?.DOI
+                            ).then(result => {
+                                if (result && result.pdfUrl) {
+                                    firecrawlPdfCache.set(paper.paperId, result);
+                                    pdfBadge.innerText = "🔥 PDF (Firecrawl)";
+                                    pdfBadge.style.backgroundColor = "#fff3e0";
+                                    pdfBadge.style.color = "#e65100";
+                                    pdfBadge.style.cursor = "pointer";
+                                    pdfBadge.title = result.pdfUrl;
+                                    pdfBadge.addEventListener("click", (e: Event) => {
+                                        e.stopPropagation();
+                                        Zotero.launchURL(result.pdfUrl!);
+                                    });
+                                } else if (result && result.pageUrl) {
+                                    // No PDF but found paper page
+                                    firecrawlPdfCache.set(paper.paperId, result);
+                                    pdfBadge.innerText = "🔗 Page";
+                                    pdfBadge.style.backgroundColor = "#e8eaf6";
+                                    pdfBadge.style.color = "#3f51b5";
+                                    pdfBadge.style.cursor = "pointer";
+                                    pdfBadge.title = result.pageUrl;
+                                    pdfBadge.addEventListener("click", (e: Event) => {
+                                        e.stopPropagation();
+                                        Zotero.launchURL(result.pageUrl!);
+                                    });
+                                } else {
+                                    pdfBadge.innerText = "📭 No PDF";
+                                    pdfBadge.style.backgroundColor = "#fafafa";
+                                    pdfBadge.style.color = "#9e9e9e";
+                                }
+                            }).catch(() => {
+                                pdfBadge.innerText = "📭 No PDF";
+                                pdfBadge.style.backgroundColor = "#fafafa";
+                                pdfBadge.style.color = "#9e9e9e";
+                            });
+                        } else {
+                            pdfBadge.innerText = "📭 No PDF";
+                            pdfBadge.style.backgroundColor = "#fafafa";
+                            pdfBadge.style.color = "#9e9e9e";
+                        }
+                    }
+                }).catch(() => {
+                    // Unpaywall error - try Firecrawl if configured
+                    if (firecrawlService.isConfigured()) {
+                        pdfBadge.innerText = "🔥 Searching...";
+                        pdfBadge.style.backgroundColor = "#fff8e1";
+                        pdfBadge.style.color = "#ff8f00";
+
+                        firecrawlService.researchSearch(
+                            paper.title,
+                            paper.authors?.map(a => a.name),
+                            paper.externalIds?.DOI
+                        ).then(result => {
+                            if (result && result.pdfUrl) {
+                                firecrawlPdfCache.set(paper.paperId, result);
+                                pdfBadge.innerText = "🔥 PDF (Firecrawl)";
+                                pdfBadge.style.backgroundColor = "#fff3e0";
+                                pdfBadge.style.color = "#e65100";
+                                pdfBadge.style.cursor = "pointer";
+                                pdfBadge.title = result.pdfUrl;
+                                pdfBadge.addEventListener("click", (e: Event) => {
+                                    e.stopPropagation();
+                                    Zotero.launchURL(result.pdfUrl!);
+                                });
+                            } else {
+                                pdfBadge.innerText = "📭 No PDF";
+                                pdfBadge.style.backgroundColor = "#fafafa";
+                                pdfBadge.style.color = "#9e9e9e";
+                            }
+                        }).catch(() => {
+                            pdfBadge.innerText = "📭 No PDF";
+                            pdfBadge.style.backgroundColor = "#fafafa";
+                            pdfBadge.style.color = "#9e9e9e";
+                        });
+                    } else {
+                        pdfBadge.innerText = "📭 No PDF";
+                        pdfBadge.style.backgroundColor = "#fafafa";
+                        pdfBadge.style.color = "#9e9e9e";
+                    }
+                });
+            }
+        } else if (firecrawlService.isConfigured()) {
+            // No Semantic Scholar PDF and no DOI - try Firecrawl directly by title
+            const pdfBadge = ztoolkit.UI.createElement(doc, "span", {
+                properties: { innerText: "🔥 Searching..." },
+                styles: {
+                    fontSize: "10px",
+                    padding: "2px 6px",
+                    backgroundColor: "#fff8e1",
+                    color: "#ff8f00",
+                    borderRadius: "4px",
+                    marginLeft: "8px",
+                    whiteSpace: "nowrap"
+                }
+            });
+            header.appendChild(pdfBadge);
+
+            // Check cache first
+            const cachedResult = firecrawlPdfCache.get(paper.paperId);
+            if (cachedResult) {
+                if (cachedResult.pdfUrl) {
+                    pdfBadge.innerText = "🔥 PDF (Firecrawl)";
+                    pdfBadge.style.backgroundColor = "#fff3e0";
+                    pdfBadge.style.color = "#e65100";
+                    pdfBadge.style.cursor = "pointer";
+                    pdfBadge.title = cachedResult.pdfUrl;
+                    pdfBadge.addEventListener("click", (e: Event) => {
+                        e.stopPropagation();
+                        Zotero.launchURL(cachedResult.pdfUrl!);
+                    });
+                } else if (cachedResult.pageUrl) {
+                    pdfBadge.innerText = "🔗 Page";
+                    pdfBadge.style.backgroundColor = "#e8eaf6";
+                    pdfBadge.style.color = "#3f51b5";
+                    pdfBadge.style.cursor = "pointer";
+                    pdfBadge.title = cachedResult.pageUrl;
+                    pdfBadge.addEventListener("click", (e: Event) => {
+                        e.stopPropagation();
+                        Zotero.launchURL(cachedResult.pageUrl!);
+                    });
+                } else {
+                    pdfBadge.innerText = "📭 No PDF";
+                    pdfBadge.style.backgroundColor = "#fafafa";
+                    pdfBadge.style.color = "#9e9e9e";
+                }
+            } else {
+                // Search with Firecrawl
+                firecrawlService.researchSearch(
+                    paper.title,
+                    paper.authors?.map(a => a.name)
+                ).then(result => {
+                    if (result && result.pdfUrl) {
+                        firecrawlPdfCache.set(paper.paperId, result);
+                        pdfBadge.innerText = "🔥 PDF (Firecrawl)";
+                        pdfBadge.style.backgroundColor = "#fff3e0";
+                        pdfBadge.style.color = "#e65100";
+                        pdfBadge.style.cursor = "pointer";
+                        pdfBadge.title = result.pdfUrl;
+                        pdfBadge.addEventListener("click", (e: Event) => {
+                            e.stopPropagation();
+                            Zotero.launchURL(result.pdfUrl!);
+                        });
+                    } else if (result && result.pageUrl) {
+                        firecrawlPdfCache.set(paper.paperId, result);
+                        pdfBadge.innerText = "🔗 Page";
+                        pdfBadge.style.backgroundColor = "#e8eaf6";
+                        pdfBadge.style.color = "#3f51b5";
+                        pdfBadge.style.cursor = "pointer";
+                        pdfBadge.title = result.pageUrl;
+                        pdfBadge.addEventListener("click", (e: Event) => {
+                            e.stopPropagation();
+                            Zotero.launchURL(result.pageUrl!);
+                        });
+                    } else {
                         pdfBadge.innerText = "📭 No PDF";
                         pdfBadge.style.backgroundColor = "#fafafa";
                         pdfBadge.style.color = "#9e9e9e";
@@ -2656,14 +2822,38 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
                         }
                     }
                 } else {
-                    // No cached Unpaywall PDF - trigger Zotero's "Find Full Text"
-                    try {
-                        Zotero.debug(`[seerai] No PDF available, initiating Find Full Text...`);
-                        await (Zotero.Attachments as any).addAvailablePDF(newItem);
-                        Zotero.debug(`[seerai] Find Full Text initiated`);
-                    } catch (findError) {
-                        // Find Full Text failure is non-fatal
-                        Zotero.debug(`[seerai] Find Full Text failed (non-fatal): ${findError}`);
+                    // No cached Unpaywall PDF - check Firecrawl cache
+                    const cachedFirecrawlResult = firecrawlPdfCache.get(paper.paperId);
+                    if (cachedFirecrawlResult?.pdfUrl) {
+                        try {
+                            Zotero.debug(`[seerai] Using Firecrawl PDF: ${cachedFirecrawlResult.pdfUrl}`);
+                            await Zotero.Attachments.importFromURL({
+                                url: cachedFirecrawlResult.pdfUrl,
+                                parentItemID: newItem.id,
+                                title: `${paper.title}.pdf`,
+                                contentType: 'application/pdf'
+                            });
+                            Zotero.debug(`[seerai] Firecrawl PDF attached successfully`);
+                        } catch (pdfError) {
+                            // Firecrawl download failed - try Find Full Text
+                            Zotero.debug(`[seerai] Firecrawl PDF download failed, trying Find Full Text: ${pdfError}`);
+                            try {
+                                await (Zotero.Attachments as any).addAvailablePDF(newItem);
+                                Zotero.debug(`[seerai] Find Full Text initiated`);
+                            } catch (findError) {
+                                Zotero.debug(`[seerai] Find Full Text failed (non-fatal): ${findError}`);
+                            }
+                        }
+                    } else {
+                        // No cached PDF - trigger Zotero's "Find Full Text"
+                        try {
+                            Zotero.debug(`[seerai] No PDF available, initiating Find Full Text...`);
+                            await (Zotero.Attachments as any).addAvailablePDF(newItem);
+                            Zotero.debug(`[seerai] Find Full Text initiated`);
+                        } catch (findError) {
+                            // Find Full Text failure is non-fatal
+                            Zotero.debug(`[seerai] Find Full Text failed (non-fatal): ${findError}`);
+                        }
                     }
                 }
             }
@@ -7549,6 +7739,96 @@ ${tableRows}  </tbody>
         leftControls.appendChild(modelSelect);
         leftControls.appendChild(modeContainer);
 
+        // Web Search Toggle (only if Firecrawl is configured)
+        if (firecrawlService.isConfigured()) {
+            const options = stateManager.getOptions();
+
+            // Container for web search controls
+            const webSearchContainer = ztoolkit.UI.createElement(doc, "div", {
+                styles: { display: "flex", alignItems: "center", gap: "4px", marginLeft: "8px", position: "relative" }
+            });
+
+            const webSearchBtn = ztoolkit.UI.createElement(doc, "button", {
+                properties: {
+                    innerText: options.webSearchEnabled ? "🌐 Web ON" : "🌐 Web",
+                    id: "web-search-toggle",
+                    title: "Toggle web search - enriches AI responses with real-time web context"
+                },
+                styles: {
+                    padding: "4px 10px",
+                    fontSize: "11px",
+                    border: options.webSearchEnabled
+                        ? "1px solid #e65100"
+                        : "1px solid var(--border-primary)",
+                    borderRadius: "4px 0 0 4px",
+                    backgroundColor: options.webSearchEnabled
+                        ? "#fff3e0"
+                        : "var(--background-secondary)",
+                    color: options.webSearchEnabled
+                        ? "#e65100"
+                        : "var(--text-primary)",
+                    fontWeight: options.webSearchEnabled ? "bold" : "normal",
+                    cursor: "pointer",
+                    transition: "all 0.2s ease"
+                },
+                listeners: [{
+                    type: "click",
+                    listener: () => {
+                        const current = stateManager.getOptions();
+                        const newValue = !current.webSearchEnabled;
+                        stateManager.setOptions({ webSearchEnabled: newValue });
+
+                        // Update button appearance
+                        (webSearchBtn as HTMLElement).innerText = newValue ? "🌐 Web ON" : "🌐 Web";
+                        (webSearchBtn as HTMLElement).style.backgroundColor = newValue
+                            ? "#fff3e0"
+                            : "var(--background-secondary)";
+                        (webSearchBtn as HTMLElement).style.color = newValue
+                            ? "#e65100"
+                            : "var(--text-primary)";
+                        (webSearchBtn as HTMLElement).style.borderColor = newValue
+                            ? "#e65100"
+                            : "var(--border-primary)";
+                        (webSearchBtn as HTMLElement).style.fontWeight = newValue
+                            ? "bold"
+                            : "normal";
+
+                        Zotero.debug(`[seerai] Web search toggled: ${newValue}`);
+                    }
+                }]
+            });
+
+            // Settings gear button
+            const webSettingsBtn = ztoolkit.UI.createElement(doc, "button", {
+                properties: {
+                    innerText: "⚙",
+                    id: "web-search-settings",
+                    title: "Firecrawl settings"
+                },
+                styles: {
+                    padding: "4px 6px",
+                    fontSize: "11px",
+                    border: "1px solid var(--border-primary)",
+                    borderLeft: "none",
+                    borderRadius: "0 4px 4px 0",
+                    backgroundColor: "var(--background-secondary)",
+                    color: "var(--text-primary)",
+                    cursor: "pointer"
+                },
+                listeners: [{
+                    type: "click",
+                    listener: (e: Event) => {
+                        e.stopPropagation();
+                        this.showFirecrawlSettingsPopover(webSearchContainer, doc);
+                    }
+                }]
+            });
+
+            webSearchContainer.appendChild(webSearchBtn);
+            webSearchContainer.appendChild(webSettingsBtn);
+            leftControls.appendChild(webSearchContainer);
+        }
+
         // Right side: Action buttons
         const rightControls = ztoolkit.UI.createElement(doc, "div", {
             styles: { display: "flex", gap: "6px" }
@@ -7665,6 +7945,123 @@ ${tableRows}  </tbody>
                 select.appendChild(opt);
             });
         }
+    }
+
+    /**
+     * Show Firecrawl settings popover for inline configuration
+     */
+    private static showFirecrawlSettingsPopover(container: HTMLElement, doc: Document) {
+        // Remove existing popover if any
+        const existing = doc.getElementById("firecrawl-settings-popover");
+        if (existing) {
+            existing.remove();
+            return;
+        }
+
+        const prefPrefix = "extensions.seerai";
+        const currentLimit = (Zotero.Prefs.get(`${prefPrefix}.firecrawlSearchLimit`) as number) || 3;
+        const currentConcurrent = (Zotero.Prefs.get(`${prefPrefix}.firecrawlMaxConcurrent`) as number) || 3;
+
+        const popover = ztoolkit.UI.createElement(doc, "div", {
+            properties: { id: "firecrawl-settings-popover" },
+            styles: {
+                position: "absolute",
+                top: "100%",
+                left: "0",
+                marginTop: "4px",
+                backgroundColor: "var(--background-primary)",
+                border: "1px solid var(--border-primary)",
+                borderRadius: "8px",
+                padding: "12px",
+                boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+                zIndex: "1000",
+                minWidth: "200px"
+            }
+        });
+
+        // Title
+        const title = ztoolkit.UI.createElement(doc, "div", {
+            properties: { innerText: "🔥 Firecrawl Settings" },
+            styles: { fontWeight: "bold", marginBottom: "12px", fontSize: "12px" }
+        });
+        popover.appendChild(title);
+
+        // Search Result Count
+        const limitRow = ztoolkit.UI.createElement(doc, "div", {
+            styles: { display: "flex", alignItems: "center", marginBottom: "8px", gap: "8px" }
+        });
+        const limitLabel = ztoolkit.UI.createElement(doc, "label", {
+            properties: { innerText: "Search Results:" },
+            styles: { fontSize: "11px", flex: "1" }
+        });
+        const limitInput = ztoolkit.UI.createElement(doc, "input", {
+            attributes: { type: "number", min: "1", max: "10", value: String(currentLimit) },
+            styles: {
+                width: "50px",
+                padding: "4px",
+                fontSize: "11px",
+                border: "1px solid var(--border-primary)",
+                borderRadius: "4px",
+                textAlign: "center"
+            },
+            listeners: [{
+                type: "change",
+                listener: (e: Event) => {
+                    const value = parseInt((e.target as HTMLInputElement).value, 10);
+                    if (value >= 1 && value <= 10) {
+                        Zotero.Prefs.set(`${prefPrefix}.firecrawlSearchLimit`, value);
+                        Zotero.debug(`[seerai] Firecrawl search limit set to: ${value}`);
+                    }
+                }
+            }]
+        }) as HTMLInputElement;
+        limitRow.appendChild(limitLabel);
+        limitRow.appendChild(limitInput);
+        popover.appendChild(limitRow);
+
+        // Max Concurrent
+        const concurrentRow = ztoolkit.UI.createElement(doc, "div", {
+            styles: { display: "flex", alignItems: "center", gap: "8px" }
+        });
+        const concurrentLabel = ztoolkit.UI.createElement(doc, "label", {
+            properties: { innerText: "Max Concurrent:" },
+            styles: { fontSize: "11px", flex: "1" }
+        });
+        const concurrentInput = ztoolkit.UI.createElement(doc, "input", {
+            attributes: { type: "number", min: "1", max: "10", value: String(currentConcurrent) },
+            styles: {
+                width: "50px",
+                padding: "4px",
+                fontSize: "11px",
+                border: "1px solid var(--border-primary)",
+                borderRadius: "4px",
+                textAlign: "center"
+            },
+            listeners: [{
+                type: "change",
+                listener: (e: Event) => {
+                    const value = parseInt((e.target as HTMLInputElement).value, 10);
+                    if (value >= 1 && value <= 10) {
+                        Zotero.Prefs.set(`${prefPrefix}.firecrawlMaxConcurrent`, value);
+                        Zotero.debug(`[seerai] Firecrawl max concurrent set to: ${value}`);
+                    }
+                }
+            }]
+        }) as HTMLInputElement;
+        concurrentRow.appendChild(concurrentLabel);
+        concurrentRow.appendChild(concurrentInput);
+        popover.appendChild(concurrentRow);
+
+        container.appendChild(popover);
+
+        // Close on outside click
+        const closeHandler = (e: MouseEvent) => {
+            if (!container.contains(e.target as Node)) {
+                popover.remove();
+                doc.removeEventListener("click", closeHandler);
+            }
+        };
+        setTimeout(() => doc.addEventListener("click", closeHandler), 10);
     }
 
     /**
@@ -8055,14 +8452,46 @@ ${tableRows}  </tbody>
                 }
             }
 
+            // Check if we should include web search context
+            const options = stateManager.getOptions();
+            let webContext = "";
+
+            if (options.webSearchEnabled && firecrawlService.isConfigured()) {
+                try {
+                    Zotero.debug(`[seerai] Fetching web search context for: ${text}`);
+                    const webResults = await firecrawlService.webSearch(text, firecrawlService.getSearchLimit());
+
+                    if (webResults.length > 0) {
+                        webContext = "\n\n=== Web Search Results ===";
+                        for (const result of webResults) {
+                            webContext += `\n\n--- ${result.title || 'Web Page'} ---`;
+                            webContext += `\nSource: ${result.url}`;
+                            if (result.description) {
+                                webContext += `\n${result.description}`;
+                            }
+                            if (result.markdown) {
+                                // Truncate to avoid token limits
+                                const truncated = result.markdown.slice(0, 2000);
+                                webContext += `\n${truncated}`;
+                                if (result.markdown.length > 2000) {
+                                    webContext += "\n[Content truncated...]";
+                                }
+                            }
+                        }
+                        Zotero.debug(`[seerai] Added ${webResults.length} web results to context`);
+                    }
+                } catch (e) {
+                    Zotero.debug(`[seerai] Web search failed: ${e}`);
+                }
+            }
+
             const systemPrompt = `You are a helpful research assistant for Zotero. You help users understand and analyze their academic papers, notes, and research data tables.
 
-${context}
+${context}${webContext}
 
-Be concise, accurate, and helpful. When referencing papers, cite them by title or author. When referencing table data, cite the table name and relevant columns.`;
+Be concise, accurate, and helpful. When referencing papers, cite them by title or author. When referencing table data, cite the table name and relevant columns.${webContext ? ' When using web search results, cite the source URL.' : ''}`;
 
             // Check if we should include images (vision mode)
-            const options = stateManager.getOptions();
             let messages: (OpenAIMessage | VisionMessage)[];
 
             if (options.includeImages) {
@@ -8264,11 +8693,44 @@ Be concise, accurate, and helpful. When referencing papers, cite them by title o
                 }
             }
 
+            // Check if we should include web search context
+            const options = stateManager.getOptions();
+            let webContext = "";
+
+            if (options.webSearchEnabled && firecrawlService.isConfigured()) {
+                try {
+                    Zotero.debug(`[seerai] Fetching web search context for: ${text}`);
+                    const webResults = await firecrawlService.webSearch(text, firecrawlService.getSearchLimit());
+
+                    if (webResults.length > 0) {
+                        webContext = "\n\n=== Web Search Results ===";
+                        for (const result of webResults) {
+                            webContext += `\n\n--- ${result.title || 'Web Page'} ---`;
+                            webContext += `\nSource: ${result.url}`;
+                            if (result.description) {
+                                webContext += `\n${result.description}`;
+                            }
+                            if (result.markdown) {
+                                // Truncate to avoid token limits
+                                const truncated = result.markdown.slice(0, 2000);
+                                webContext += `\n${truncated}`;
+                                if (result.markdown.length > 2000) {
+                                    webContext += "\n[Content truncated...]";
+                                }
+                            }
+                        }
+                        Zotero.debug(`[seerai] Added ${webResults.length} web results to context`);
+                    }
+                } catch (e) {
+                    Zotero.debug(`[seerai] Web search failed: ${e}`);
+                }
+            }
+
             const systemPrompt = `You are a helpful research assistant for Zotero. You help users understand and analyze their academic papers, notes, and research data tables.
 
-${context}
+${context}${webContext}
 
-Be concise, accurate, and helpful. When referencing papers, cite them by title or author. When referencing table data, cite the table name and relevant columns.`;
+Be concise, accurate, and helpful. When referencing papers, cite them by title or author. When referencing table data, cite the table name and relevant columns.${webContext ? ' When using web search results, cite the source URL.' : ''}`;
 
             // Build vision-compatible messages with pasted images
             const userMessageContent: VisionMessageContentPart[] = [

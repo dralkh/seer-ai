@@ -16,3 +16,7 @@ pref("cloudUseLlm", false);
 pref("modelConfigs", "[]");
 pref("activeModelId", "");
 pref("semanticScholarApiKey", "");
+pref("firecrawlApiKey", "");
+pref("firecrawlApiUrl", "https://api.firecrawl.dev/v2");
+pref("firecrawlSearchLimit", 3);
+pref("firecrawlMaxConcurrent", 3);

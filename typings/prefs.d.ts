@@ -25,6 +25,10 @@ declare namespace _ZoteroTypes {
       "modelConfigs": string;
       "activeModelId": string;
       "semanticScholarApiKey": string;
+      "firecrawlApiKey": string;
+      "firecrawlApiUrl": string;
+      "firecrawlSearchLimit": number;
+      "firecrawlMaxConcurrent": number;
     };
   }
 }

@@ -151,6 +151,7 @@ export interface ChatOptions {
     includeFullText: boolean;
     includeAbstracts: boolean;
     includeImages: boolean;  // Include image attachments for vision models
+    webSearchEnabled: boolean;  // Enable Firecrawl web search for AI context
     selectionMode: SelectionMode; // Navigation behavior: lock (no add), default (single focus), explore (multi-add)
     maxTokens?: number;
     model?: string;
@@ -161,6 +162,7 @@ export const defaultChatOptions: ChatOptions = {
     includeFullText: true,
     includeAbstracts: true,
     includeImages: true,  // Enabled by default for vision models
+    webSearchEnabled: false,  // Disabled by default - requires Firecrawl API
     selectionMode: 'default',
 };
 

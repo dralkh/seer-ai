@@ -133,6 +133,49 @@
     </hbox>
   </vbox>
 
+  <html:hr style="margin: 16px 0;" />
+
+  <!-- Firecrawl Settings -->
+  <label>
+    <html:h3>Firecrawl Integration (Web Search &amp; PDF Discovery)</html:h3>
+  </label>
+  <vbox style="margin-left: 20px; padding: 10px; background: rgba(0,0,0,0.03); border-radius: 4px;">
+    <hbox align="center" style="margin-bottom: 8px;">
+      <label style="width: 100px;">API Key:</label>
+      <html:input type="password" id="zotero-prefpane-__addonRef__-firecrawlApiKey" placeholder="fc-YOUR-API-KEY"
+        style="flex: 1; min-width: 200px;"></html:input>
+    </hbox>
+    <hbox align="center" style="margin-bottom: 8px;">
+      <label style="width: 100px;">API URL:</label>
+      <html:input type="text" id="zotero-prefpane-__addonRef__-firecrawlApiUrl"
+        placeholder="https://api.firecrawl.dev/v2" style="flex: 1; min-width: 200px;"></html:input>
+    </hbox>
+    <hbox align="center" style="margin-bottom: 8px;">
+      <label style="width: 100px;">Search Limit:</label>
+      <html:input type="number" id="zotero-prefpane-__addonRef__-firecrawlSearchLimit" placeholder="3" min="1" max="10"
+        style="width: 60px;"></html:input>
+      <label style="margin-left: 8px; font-size: 11px; color: #666;">Results per query (1-10)</label>
+    </hbox>
+    <hbox align="center" style="margin-bottom: 8px;">
+      <label style="width: 100px;">Max Concurrent:</label>
+      <html:input type="number" id="zotero-prefpane-__addonRef__-firecrawlMaxConcurrent" placeholder="3" min="1"
+        max="10" style="width: 60px;"></html:input>
+      <label style="margin-left: 8px; font-size: 11px; color: #666;">Parallel requests (1-10)</label>
+    </hbox>
+    <hbox align="center" style="gap: 16px;">
+      <html:a href="https://firecrawl.dev"
+        style="color: #0066cc; text-decoration: underline; cursor: pointer; font-size: 12px;"
+        onclick="Zotero.launchURL(this.href); return false;">
+        🔥 Get Firecrawl API Key
+      </html:a>
+      <html:a href="https://github.com/mendableai/firecrawl"
+        style="color: #0066cc; text-decoration: underline; cursor: pointer; font-size: 12px;"
+        onclick="Zotero.launchURL(this.href); return false;">
+        🖥️ Setup Firecrawl Locally
+      </html:a>
+    </hbox>
+  </vbox>
+
 </groupbox>
 <vbox style="margin-top: 16px;">
   <html:label data-l10n-id="pref-help" style="font-size: 11px; color: #666;"
