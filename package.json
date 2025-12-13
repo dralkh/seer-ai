@@ -1,24 +1,24 @@
 {
-  "name": "seer-ai",
+  "name": "seerai",
   "type": "module",
   "version": "1.1.2",
-  "description": "Seer AI - Intelligent Research Assistant for Zotero",
+  "description": "seerai - Intelligent Research Assistant for Zotero",
   "config": {
-    "addonName": "Seer AI",
-    "addonID": "seer-ai@zotero.org",
+    "addonName": "seerai",
+    "addonID": "seerai@zotero.org",
     "addonRef": "seerai",
     "addonInstance": "SeerAI",
     "prefsPrefix": "extensions.zotero.seerai"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/dralkh/Seer-AI.git"
+    "url": "git+https://github.com/dralkh/seerai.git"
   },
   "author": "dralkh",
   "bugs": {
-    "url": "https://github.com/dralkh/Seer-AI/issues"
+    "url": "https://github.com/dralkh/seerai/issues"
   },
-  "homepage": "https://github.com/dralkh/seer-ai",
+  "homepage": "https://github.com/dralkh/seerai",
   "license": "MIT",
   "scripts": {
     "start": "zotero-plugin serve",

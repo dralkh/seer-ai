@@ -43,7 +43,7 @@ async function onMainWindowLoad(win: _ZoteroTypes.MainWindow): Promise<void> {
   const menuId = "zotero-itemmenu";
   const menu = win.document.getElementById(menuId);
   if (menu) {
-    const menuItemId = "seer-ai-datalab-ocr";
+    const menuItemId = "seerai-datalab-ocr";
     let menuItem = win.document.getElementById(menuItemId) as XUL.MenuItem;
     if (!menuItem) {
       menuItem = win.document.createXULElement("menuitem") as XUL.MenuItem;
@@ -75,7 +75,7 @@ async function onMainWindowLoad(win: _ZoteroTypes.MainWindow): Promise<void> {
   const toolbarId = "zotero-items-toolbar";
   const toolbar = win.document.getElementById(toolbarId);
   if (toolbar) {
-    const buttonId = "seer-ai-process-all-btn";
+    const buttonId = "seerai-process-all-btn";
     let button = win.document.getElementById(buttonId) as XUL.ToolBarButton;
     if (!button) {
       button = win.document.createXULElement("toolbarbutton") as XUL.ToolBarButton;

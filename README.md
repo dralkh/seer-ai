@@ -1,4 +1,4 @@
-# Seer AI
+# seerai
 
 <p align="center">
   <img src="https://github.com/user-attachments/assets/70e618aa-5c92-45fc-bec0-bf253de09ad4" 
@@ -18,7 +18,7 @@ https://github.com/user-attachments/assets/b0847022-d1ab-4e98-8e3a-607d1073db8f
 [![Zotero 7 Compatible](https://img.shields.io/badge/Zotero-7.x-brightgreen)](https://www.zotero.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
-**Seer AI** is an intelligent research assistant plugin for Zotero 7 that integrates AI-powered chat capabilities directly into your research workflow. Chat with your papers, get insights, and accelerate your review process.
+**seerai** is an intelligent research assistant plugin for Zotero 7 that integrates AI-powered chat capabilities directly into your research workflow. Chat with your papers, get insights, and accelerate your review process.
 
 ---
 
@@ -77,7 +77,7 @@ https://github.com/user-attachments/assets/b0847022-d1ab-4e98-8e3a-607d1073db8f
 
 ### From GitHub (Recommended)
 
-1. Download the latest release from [Releases](https://github.com/dralkh/Seer-AI/releases)
+1. Download the latest release from [Releases](https://github.com/dralkh/seerai/releases)
 2. In Zotero, go to **Tools → Add-ons**
 3. Click the gear icon and select **Install Add-on From File...**
 4. Select the downloaded `.xpi` file
@@ -87,8 +87,8 @@ https://github.com/user-attachments/assets/b0847022-d1ab-4e98-8e3a-607d1073db8f
 
 ```bash
 # Clone the repository
-git clone https://github.com/dralkh/Seer-AI.git
-cd Seer-AI
+git clone https://github.com/dralkh/seerai.git
+cd seerai
 
 # Install dependencies
 npm install
@@ -105,7 +105,7 @@ npm run build
 
 ### Setting Up AI Models
 
-1. Go to **Zotero → Settings → Seer AI**
+1. Go to **Zotero → Settings → seerai**
 2. Click **Add Configuration** to add your first AI model
 3. Enter:
    - **Name**: A friendly name for this configuration
@@ -125,12 +125,12 @@ npm run build
 
 ### DataLab OCR Setup
 
-Seer AI supports three modes for PDF-to-markdown conversion:
+seerai supports three modes for PDF-to-markdown conversion:
 
 #### Option A: DataLab.to
 
 1. Get an API key from [datalab.to](https://datalab.to)
-2. Go to **Zotero → Settings → Seer AI**
+2. Go to **Zotero → Settings → seerai**
 3. Select **Cloud (DataLab.to)** from the OCR Service dropdown
 4. Enter your DataLab API Key
 5. Optional settings:
@@ -163,9 +163,9 @@ uv run marker_server --port 8001
 
 The server will start at `http://localhost:8001`.
 
-**Configuring Seer AI for Local Marker:**
+**Configuring seerai for Local Marker:**
 
-1. Go to **Zotero → Settings → Seer AI**
+1. Go to **Zotero → Settings → seerai**
 2. Select **Local Marker Server** from the OCR Service dropdown
 3. Set Server URL to `http://localhost:8001`
 4. Optional: Enable **Force OCR** for scanned PDFs
@@ -175,7 +175,7 @@ The server will start at `http://localhost:8001`.
 Use Mistral's AI-powered OCR for high-quality document extraction.
 
 1. Get an API key from [Mistral AI](https://console.mistral.ai/)
-2. Go to **Zotero → Settings → Seer AI**
+2. Go to **Zotero → Settings → seerai**
 3. Select **Mistral OCR** from the OCR Service dropdown
 4. Enter your Mistral API Key
 
@@ -183,7 +183,7 @@ Mistral OCR uses the `mistral-ocr-latest` model and automatically handles file u
 
 ### Semantic Scholar Setup
 
-1. Go to **Zotero → Settings → Seer AI**
+1. Go to **Zotero → Settings → seerai**
 2. Enter your **Semantic Scholar API Key** (optional, but recommended for higher rate limits).
    - Without an API key: Limited request rate.
    - With an API key: Higher limits (up to 1 request/sec).
@@ -246,7 +246,7 @@ npm run lint:fix
 ### Project Structure
 
 ```
-seer-ai/
+seerai/
 ├── addon/                 # Zotero addon files
 │   ├── content/          # XUL/XHTML files
 │   ├── locale/           # Localization files
@@ -265,7 +265,7 @@ seer-ai/
 
 ## Future Implementations Ideas
 
-Propose several advanced features to enhance Seer AI's capabilities. These are currently in the just idea board.
+Propose several advanced features to enhance seerai's capabilities. These are currently in the just idea board.
 
 ### 1. Prompt Library
 A built-in library of research-focused prompt templates to streamline common tasks.
@@ -334,4 +334,4 @@ This project is licensed under the MIT License - [LICENSE](LICENSE).
 
 ## Support
 
-- **Issues**: [GitHub Issues](https://github.com/dralkh/Seer-AI/issues)
+- **Issues**: [GitHub Issues](https://github.com/dralkh/seerai/issues)

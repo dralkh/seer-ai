@@ -1,4 +1,4 @@
-pref-title = Seer AI 设置
+pref-title = seerai 设置
 pref-enable =
     .label = 开启
 pref-input = 输入

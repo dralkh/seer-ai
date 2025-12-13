@@ -34,7 +34,7 @@ export class TableStore {
                 await IOUtils.makeDirectory(this.dataDir, { ignoreExisting: true });
             }
         } catch (e) {
-            Zotero.debug(`[Seer AI] Error creating table store directory: ${e}`);
+            Zotero.debug(`[seerai] Error creating table store directory: ${e}`);
         }
     }
 
@@ -68,7 +68,7 @@ export class TableStore {
                 ...parsed,
             };
         } catch (e) {
-            Zotero.debug(`[Seer AI] Error loading table config: ${e}`);
+            Zotero.debug(`[seerai] Error loading table config: ${e}`);
             return this.createDefaultConfig();
         }
     }
@@ -103,7 +103,7 @@ export class TableStore {
             // Add to history
             await this.addToHistory(config);
         } catch (e) {
-            Zotero.debug(`[Seer AI] Error saving table config: ${e}`);
+            Zotero.debug(`[seerai] Error saving table config: ${e}`);
         }
     }
 
@@ -124,7 +124,7 @@ export class TableStore {
 
             return JSON.parse(content);
         } catch (e) {
-            Zotero.debug(`[Seer AI] Error loading table history: ${e}`);
+            Zotero.debug(`[seerai] Error loading table history: ${e}`);
             return { ...defaultTableHistory };
         }
     }
@@ -138,7 +138,7 @@ export class TableStore {
             const encoder = new TextEncoder();
             await IOUtils.write(this.historyFile, encoder.encode(JSON.stringify(history, null, 2)));
         } catch (e) {
-            Zotero.debug(`[Seer AI] Error saving table history: ${e}`);
+            Zotero.debug(`[seerai] Error saving table history: ${e}`);
         }
     }
 
@@ -173,7 +173,7 @@ export class TableStore {
             const encoder = new TextEncoder();
             await IOUtils.write(this.historyFile, encoder.encode(JSON.stringify(history, null, 2)));
         } catch (e) {
-            Zotero.debug(`[Seer AI] Error adding to table history: ${e}`);
+            Zotero.debug(`[seerai] Error adding to table history: ${e}`);
         }
     }
 
@@ -186,7 +186,7 @@ export class TableStore {
             const entry = history.entries.find(e => e.config.id === configId);
             return entry ? entry.config : null;
         } catch (e) {
-            Zotero.debug(`[Seer AI] Error loading from history: ${e}`);
+            Zotero.debug(`[seerai] Error loading from history: ${e}`);
             return null;
         }
     }
@@ -201,7 +201,7 @@ export class TableStore {
             await IOUtils.write(this.configFile, encoder.encode(""));
             await IOUtils.write(this.historyFile, encoder.encode(""));
         } catch (e) {
-            Zotero.debug(`[Seer AI] Error clearing table store: ${e}`);
+            Zotero.debug(`[seerai] Error clearing table store: ${e}`);
         }
     }
 
@@ -222,7 +222,7 @@ export class TableStore {
 
             return JSON.parse(content);
         } catch (e) {
-            Zotero.debug(`[Seer AI] Error loading column presets: ${e}`);
+            Zotero.debug(`[seerai] Error loading column presets: ${e}`);
             return [];
         }
     }
@@ -247,9 +247,9 @@ export class TableStore {
             const encoder = new TextEncoder();
             await IOUtils.write(this.presetsFile, encoder.encode(JSON.stringify(presets, null, 2)));
 
-            Zotero.debug(`[Seer AI] Saved column preset: ${preset.name}`);
+            Zotero.debug(`[seerai] Saved column preset: ${preset.name}`);
         } catch (e) {
-            Zotero.debug(`[Seer AI] Error saving column preset: ${e}`);
+            Zotero.debug(`[seerai] Error saving column preset: ${e}`);
         }
     }
 
@@ -266,9 +266,9 @@ export class TableStore {
             const encoder = new TextEncoder();
             await IOUtils.write(this.presetsFile, encoder.encode(JSON.stringify(filtered, null, 2)));
 
-            Zotero.debug(`[Seer AI] Deleted column preset: ${presetId}`);
+            Zotero.debug(`[seerai] Deleted column preset: ${presetId}`);
         } catch (e) {
-            Zotero.debug(`[Seer AI] Error deleting column preset: ${e}`);
+            Zotero.debug(`[seerai] Error deleting column preset: ${e}`);
         }
     }
 }

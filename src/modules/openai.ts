@@ -38,10 +38,10 @@ export class OpenAIService {
     private isAborted: boolean = false;
 
     private getPrefs() {
-        Zotero.debug(`[Seer AI] Config Prefix: ${config.prefsPrefix}`);
-        Zotero.debug(`[Seer AI] Reading Key: ${config.prefsPrefix}.apiKey`);
+        Zotero.debug(`[seerai] Config Prefix: ${config.prefsPrefix}`);
+        Zotero.debug(`[seerai] Reading Key: ${config.prefsPrefix}.apiKey`);
         const val = Zotero.Prefs.get(`${config.prefsPrefix}.apiKey`);
-        Zotero.debug(`[Seer AI] API Key Value: ${val}`);
+        Zotero.debug(`[seerai] API Key Value: ${val}`);
 
         return {
             apiURL: Zotero.Prefs.get(`${config.prefsPrefix}.apiURL`) as string,
@@ -69,7 +69,7 @@ export class OpenAIService {
                 // AbortController.abort() may not be available
             }
             this.currentController = null;
-            Zotero.debug("[Seer AI] Request aborted by user");
+            Zotero.debug("[seerai] Request aborted by user");
             return true;
         }
         return false;
@@ -98,7 +98,7 @@ export class OpenAIService {
             }
         } catch (e) {
             // Fallback: no abort support
-            Zotero.debug("[Seer AI] AbortController not available, abort disabled");
+            Zotero.debug("[seerai] AbortController not available, abort disabled");
         }
 
         try {
@@ -162,7 +162,7 @@ export class OpenAIService {
                 signal = this.currentController.signal;
             }
         } catch (e) {
-            Zotero.debug("[Seer AI] AbortController not available, abort disabled");
+            Zotero.debug("[seerai] AbortController not available, abort disabled");
         }
 
         let fullContent = "";
@@ -204,7 +204,7 @@ export class OpenAIService {
                 // Check if manually aborted (fallback for environments without AbortController)
                 if (this.isAborted) {
                     callbacks.onComplete?.(fullContent);
-                    Zotero.debug("[Seer AI] Stream manually aborted");
+                    Zotero.debug("[seerai] Stream manually aborted");
                     return;
                 }
 
@@ -239,7 +239,7 @@ export class OpenAIService {
             if ((error as Error).name === 'AbortError') {
                 // Call onComplete with partial content when aborted
                 callbacks.onComplete?.(fullContent);
-                Zotero.debug("[Seer AI] Stream aborted by user");
+                Zotero.debug("[seerai] Stream aborted by user");
                 return;
             }
             callbacks.onError?.(error as Error);

@@ -1,4 +1,4 @@
-pref-title = Seer AI Settings
+pref-title = seerai Settings
 pref-datalab-title = OCR Configurations
 pref-datalabModeLocal = Local Marker Server
 pref-datalabModeCloud = Cloud (DataLab.to)

@@ -29,7 +29,7 @@ export function getModelConfigs(): AIModelConfig[] {
         if (!stored) return [];
         return JSON.parse(stored) as AIModelConfig[];
     } catch (e) {
-        Zotero.debug(`[Seer AI] Error loading model configs: ${e}`);
+        Zotero.debug(`[seerai] Error loading model configs: ${e}`);
         return [];
     }
 }
@@ -40,9 +40,9 @@ export function getModelConfigs(): AIModelConfig[] {
 function saveModelConfigs(configs: AIModelConfig[]): void {
     try {
         Zotero.Prefs.set(PREFS_KEY, JSON.stringify(configs));
-        Zotero.debug(`[Seer AI] Saved ${configs.length} model configurations`);
+        Zotero.debug(`[seerai] Saved ${configs.length} model configurations`);
     } catch (e) {
-        Zotero.debug(`[Seer AI] Error saving model configs: ${e}`);
+        Zotero.debug(`[seerai] Error saving model configs: ${e}`);
     }
 }
 
@@ -111,7 +111,7 @@ export function addModelConfig(config: Omit<AIModelConfig, 'id' | 'createdAt' | 
     configs.push(newConfig);
     saveModelConfigs(configs);
 
-    Zotero.debug(`[Seer AI] Added model config: ${newConfig.name} (${newConfig.id})`);
+    Zotero.debug(`[seerai] Added model config: ${newConfig.name} (${newConfig.id})`);
     return newConfig;
 }
 
@@ -123,7 +123,7 @@ export function updateModelConfig(id: string, updates: Partial<Omit<AIModelConfi
     const index = configs.findIndex(c => c.id === id);
 
     if (index === -1) {
-        Zotero.debug(`[Seer AI] Model config not found: ${id}`);
+        Zotero.debug(`[seerai] Model config not found: ${id}`);
         return undefined;
     }
 
@@ -139,7 +139,7 @@ export function updateModelConfig(id: string, updates: Partial<Omit<AIModelConfi
     };
 
     saveModelConfigs(configs);
-    Zotero.debug(`[Seer AI] Updated model config: ${configs[index].name}`);
+    Zotero.debug(`[seerai] Updated model config: ${configs[index].name}`);
     return configs[index];
 }
 
@@ -172,7 +172,7 @@ export function deleteModelConfig(id: string): boolean {
         }
     }
 
-    Zotero.debug(`[Seer AI] Deleted model config: ${id}`);
+    Zotero.debug(`[seerai] Deleted model config: ${id}`);
     return true;
 }
 
@@ -190,7 +190,7 @@ export function setDefaultModelConfig(id: string): boolean {
     configs.forEach(c => c.isDefault = (c.id === id));
     saveModelConfigs(configs);
 
-    Zotero.debug(`[Seer AI] Set default model: ${target.name}`);
+    Zotero.debug(`[seerai] Set default model: ${target.name}`);
     return true;
 }
 

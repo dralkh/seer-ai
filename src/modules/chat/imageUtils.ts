@@ -61,7 +61,7 @@ export async function encodeImageAsBase64(attachment: Zotero.Item): Promise<stri
     try {
         const filePath = await attachment.getFilePathAsync();
         if (!filePath) {
-            Zotero.debug(`[Seer AI] No file path for attachment ${attachment.id}`);
+            Zotero.debug(`[seerai] No file path for attachment ${attachment.id}`);
             return null;
         }
 
@@ -76,7 +76,7 @@ export async function encodeImageAsBase64(attachment: Zotero.Item): Promise<stri
 
         return base64;
     } catch (e) {
-        Zotero.debug(`[Seer AI] Error encoding image: ${e}`);
+        Zotero.debug(`[seerai] Error encoding image: ${e}`);
         return null;
     }
 }
@@ -110,7 +110,7 @@ export async function createImageContentParts(
                     }
                 });
                 imageCount++;
-                Zotero.debug(`[Seer AI] Added image: ${image.attachmentFilename}`);
+                Zotero.debug(`[seerai] Added image: ${image.attachmentFilename}`);
             }
         }
     }

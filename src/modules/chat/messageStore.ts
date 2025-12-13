@@ -39,7 +39,7 @@ export class FileMessageStore extends MessageStore {
                 await IOUtils.makeDirectory(this.dataDir, { ignoreExisting: true });
             }
         } catch (e) {
-            Zotero.debug(`[Seer AI] Error creating directory: ${e}`);
+            Zotero.debug(`[seerai] Error creating directory: ${e}`);
         }
     }
 
@@ -69,12 +69,12 @@ export class FileMessageStore extends MessageStore {
                         msg.timestamp = new Date(msg.timestamp);
                         messages.push(msg);
                     } catch (parseError) {
-                        Zotero.debug(`[Seer AI] Error parsing message line: ${parseError}`);
+                        Zotero.debug(`[seerai] Error parsing message line: ${parseError}`);
                     }
                 }
             }
         } catch (e) {
-            Zotero.debug(`[Seer AI] Error loading messages: ${e}`);
+            Zotero.debug(`[seerai] Error loading messages: ${e}`);
         }
 
         return messages;
@@ -98,7 +98,7 @@ export class FileMessageStore extends MessageStore {
                 await IOUtils.write(this.messagesFile, encoder.encode(messageLine));
             }
         } catch (e) {
-            Zotero.debug(`[Seer AI] Error appending message: ${e}`);
+            Zotero.debug(`[seerai] Error appending message: ${e}`);
         }
     }
 
@@ -121,7 +121,7 @@ export class FileMessageStore extends MessageStore {
             const encoder = new TextEncoder();
             await IOUtils.write(this.messagesFile, encoder.encode(content));
         } catch (e) {
-            Zotero.debug(`[Seer AI] Error modifying message: ${e}`);
+            Zotero.debug(`[seerai] Error modifying message: ${e}`);
         }
     }
 
@@ -135,7 +135,7 @@ export class FileMessageStore extends MessageStore {
             await IOUtils.write(this.messagesFile, encoder.encode(""));
             await IOUtils.write(this.stateFile, encoder.encode(""));
         } catch (e) {
-            Zotero.debug(`[Seer AI] Error clearing messages: ${e}`);
+            Zotero.debug(`[seerai] Error clearing messages: ${e}`);
         }
     }
 
@@ -156,7 +156,7 @@ export class FileMessageStore extends MessageStore {
 
             return JSON.parse(content);
         } catch (e) {
-            Zotero.debug(`[Seer AI] Error loading conversation state: ${e}`);
+            Zotero.debug(`[seerai] Error loading conversation state: ${e}`);
             return null;
         }
     }
@@ -171,7 +171,7 @@ export class FileMessageStore extends MessageStore {
             const encoder = new TextEncoder();
             await IOUtils.write(this.stateFile, encoder.encode(JSON.stringify(stateData, null, 2)));
         } catch (e) {
-            Zotero.debug(`[Seer AI] Error saving conversation state: ${e}`);
+            Zotero.debug(`[seerai] Error saving conversation state: ${e}`);
         }
     }
 }

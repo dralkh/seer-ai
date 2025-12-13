@@ -270,7 +270,7 @@ class SemanticScholarService {
         const params = this.buildQueryParams(options);
         const url = `${this.baseUrl}/paper/search?${params.toString()}`;
 
-        Zotero.debug(`[Seer AI] Semantic Scholar search: ${url}`);
+        Zotero.debug(`[seerai] Semantic Scholar search: ${url}`);
 
         try {
             const response = await this.rateLimitedFetch(url);
@@ -283,7 +283,7 @@ class SemanticScholarService {
             const data = await response.json() as unknown as SearchResult;
             return data;
         } catch (error) {
-            Zotero.debug(`[Seer AI] Semantic Scholar search error: ${error}`);
+            Zotero.debug(`[seerai] Semantic Scholar search error: ${error}`);
             throw error;
         }
     }
@@ -305,7 +305,7 @@ class SemanticScholarService {
 
         const url = `${this.baseUrl}/paper/search/bulk?${params.toString()}`;
 
-        Zotero.debug(`[Seer AI] Semantic Scholar bulk search: ${url}`);
+        Zotero.debug(`[seerai] Semantic Scholar bulk search: ${url}`);
 
         try {
             const response = await this.rateLimitedFetch(url);
@@ -318,7 +318,7 @@ class SemanticScholarService {
             const data = await response.json() as unknown as BulkSearchResult;
             return data;
         } catch (error) {
-            Zotero.debug(`[Seer AI] Semantic Scholar bulk search error: ${error}`);
+            Zotero.debug(`[seerai] Semantic Scholar bulk search error: ${error}`);
             throw error;
         }
     }
@@ -347,7 +347,7 @@ class SemanticScholarService {
 
         const url = `${this.baseUrl}/paper/${paperId}?fields=${fields}`;
 
-        Zotero.debug(`[Seer AI] Semantic Scholar get paper: ${paperId}`);
+        Zotero.debug(`[seerai] Semantic Scholar get paper: ${paperId}`);
 
         try {
             const response = await this.rateLimitedFetch(url);
@@ -359,7 +359,7 @@ class SemanticScholarService {
 
             return await response.json() as unknown as SemanticScholarPaper;
         } catch (error) {
-            Zotero.debug(`[Seer AI] Semantic Scholar get paper error: ${error}`);
+            Zotero.debug(`[seerai] Semantic Scholar get paper error: ${error}`);
             throw error;
         }
     }
@@ -385,7 +385,7 @@ class SemanticScholarService {
 
         const url = `${this.recommendationsUrl}/papers?fields=${fields}&limit=${limit}`;
 
-        Zotero.debug(`[Seer AI] Semantic Scholar recommendations for ${positivePaperIds.length} papers`);
+        Zotero.debug(`[seerai] Semantic Scholar recommendations for ${positivePaperIds.length} papers`);
 
         try {
             const response = await this.rateLimitedFetch(url, {
@@ -404,7 +404,7 @@ class SemanticScholarService {
             const data = await response.json() as unknown as { recommendedPapers: SemanticScholarPaper[] };
             return data.recommendedPapers;
         } catch (error) {
-            Zotero.debug(`[Seer AI] Semantic Scholar recommendations error: ${error}`);
+            Zotero.debug(`[seerai] Semantic Scholar recommendations error: ${error}`);
             throw error;
         }
     }
@@ -424,20 +424,20 @@ class SemanticScholarService {
 
         const url = `${this.baseUrl}/paper/autocomplete?query=${encodeURIComponent(query)}`;
 
-        Zotero.debug(`[Seer AI] Semantic Scholar autocomplete: ${query}`);
+        Zotero.debug(`[seerai] Semantic Scholar autocomplete: ${query}`);
 
         try {
             const response = await this.autocompleteFetch(url);
 
             if (!response.ok) {
-                Zotero.debug(`[Seer AI] Autocomplete failed: ${response.status}`);
+                Zotero.debug(`[seerai] Autocomplete failed: ${response.status}`);
                 return [];
             }
 
             const data = await response.json() as unknown as { matches: { id: string; title: string }[] };
             return data.matches?.map(m => ({ paperId: m.id, title: m.title })) || [];
         } catch (error) {
-            Zotero.debug(`[Seer AI] Autocomplete error: ${error}`);
+            Zotero.debug(`[seerai] Autocomplete error: ${error}`);
             return [];
         }
     }
@@ -462,7 +462,7 @@ class SemanticScholarService {
 
         const url = `${this.baseUrl}/author/batch?fields=${fields}`;
 
-        Zotero.debug(`[Seer AI] Fetching ${authorIds.length} authors`);
+        Zotero.debug(`[seerai] Fetching ${authorIds.length} authors`);
 
         try {
             const response = await this.rateLimitedFetch(url, {
@@ -477,7 +477,7 @@ class SemanticScholarService {
 
             return await response.json() as unknown as SemanticScholarAuthorDetails[];
         } catch (error) {
-            Zotero.debug(`[Seer AI] Author batch error: ${error}`);
+            Zotero.debug(`[seerai] Author batch error: ${error}`);
             throw error;
         }
     }
@@ -567,7 +567,7 @@ class UnpaywallService {
     private async fetchPdfUrl(doi: string): Promise<string | null> {
         try {
             const url = `${this.baseUrl}/${encodeURIComponent(doi)}?email=${this.email}`;
-            Zotero.debug(`[Seer AI] Checking Unpaywall for DOI: ${doi}`);
+            Zotero.debug(`[seerai] Checking Unpaywall for DOI: ${doi}`);
 
             const response = await fetch(url);
 
@@ -576,7 +576,7 @@ class UnpaywallService {
                     // DOI not found - this is normal, cache as null
                     return null;
                 }
-                Zotero.debug(`[Seer AI] Unpaywall error: ${response.status}`);
+                Zotero.debug(`[seerai] Unpaywall error: ${response.status}`);
                 return null;
             }
 
@@ -589,13 +589,13 @@ class UnpaywallService {
                 || data.oa_locations?.find(loc => loc.url)?.url;
 
             if (pdfUrl) {
-                Zotero.debug(`[Seer AI] Unpaywall found PDF for ${doi}: ${pdfUrl}`);
+                Zotero.debug(`[seerai] Unpaywall found PDF for ${doi}: ${pdfUrl}`);
                 return pdfUrl;
             }
 
             return null;
         } catch (error) {
-            Zotero.debug(`[Seer AI] Unpaywall fetch error: ${error}`);
+            Zotero.debug(`[seerai] Unpaywall fetch error: ${error}`);
             return null;
         }
     }

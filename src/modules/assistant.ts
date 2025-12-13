@@ -66,7 +66,7 @@ interface FilterPreset {
 
 function getFilterPresets(): FilterPreset[] {
     try {
-        const stored = Zotero.Prefs.get("extensions.seer-ai.filterPresets") as string;
+        const stored = Zotero.Prefs.get("extensions.seerai.filterPresets") as string;
         return stored ? JSON.parse(stored) : [];
     } catch {
         return [];
@@ -74,7 +74,7 @@ function getFilterPresets(): FilterPreset[] {
 }
 
 function saveFilterPresets(presets: FilterPreset[]): void {
-    Zotero.Prefs.set("extensions.seer-ai.filterPresets", JSON.stringify(presets));
+    Zotero.Prefs.set("extensions.seerai.filterPresets", JSON.stringify(presets));
 }
 
 function addFilterPreset(name: string, filters: SearchState): void {
@@ -255,9 +255,9 @@ export class Assistant {
             try {
                 const messageStore = getMessageStore();
                 conversationMessages = await messageStore.loadMessages();
-                Zotero.debug(`[Seer AI] Loaded ${conversationMessages.length} messages from storage`);
+                Zotero.debug(`[seerai] Loaded ${conversationMessages.length} messages from storage`);
             } catch (e) {
-                Zotero.debug(`[Seer AI] Error loading messages, starting fresh: ${e}`);
+                Zotero.debug(`[seerai] Error loading messages, starting fresh: ${e}`);
                 conversationMessages = [];  // Start fresh on error
             }
         }
@@ -267,9 +267,9 @@ export class Assistant {
             try {
                 const tableStore = getTableStore();
                 currentTableConfig = await tableStore.loadConfig();
-                Zotero.debug(`[Seer AI] Loaded table config: ${currentTableConfig.id}`);
+                Zotero.debug(`[seerai] Loaded table config: ${currentTableConfig.id}`);
             } catch (e) {
-                Zotero.debug(`[Seer AI] Error loading table config: ${e}`);
+                Zotero.debug(`[seerai] Error loading table config: ${e}`);
             }
         }
 
@@ -721,7 +721,7 @@ export class Assistant {
                     suggestionsDropdown.appendChild(item);
                 });
             } catch (e) {
-                Zotero.debug(`[Seer AI] Suggestions error: ${e}`);
+                Zotero.debug(`[seerai] Suggestions error: ${e}`);
                 suggestionsDropdown.innerHTML = "";
                 const errorDiv = ztoolkit.UI.createElement(doc, "div", {
                     styles: {
@@ -987,7 +987,7 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
                     model: activeModel.model
                 });
             } catch (e) {
-                Zotero.debug(`[Seer AI] AI Refine error: ${e}`);
+                Zotero.debug(`[seerai] AI Refine error: ${e}`);
                 aiRefineDropdown.innerHTML = "";
                 const errorDiv = ztoolkit.UI.createElement(doc, "div", {
                     styles: {
@@ -1181,7 +1181,7 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
                     presetSelect.appendChild(newOpt);
                     presetSelect.value = name;
 
-                    Zotero.debug(`[Seer AI] Saved filter preset: ${name}`);
+                    Zotero.debug(`[seerai] Saved filter preset: ${name}`);
                 }
             }]
         });
@@ -1225,7 +1225,7 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
                     }
                     presetSelect.value = newName;
 
-                    Zotero.debug(`[Seer AI] Renamed preset: ${selectedName} -> ${newName}`);
+                    Zotero.debug(`[seerai] Renamed preset: ${selectedName} -> ${newName}`);
                 }
             }]
         });
@@ -1257,7 +1257,7 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
                     if (opt) opt.remove();
                     presetSelect.value = "";
 
-                    Zotero.debug(`[Seer AI] Deleted filter preset: ${selectedName}`);
+                    Zotero.debug(`[seerai] Deleted filter preset: ${selectedName}`);
                 }
             }]
         });
@@ -1587,7 +1587,7 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
                 type: "change",
                 listener: (e: Event) => {
                     currentSearchState.saveLocation = (e.target as HTMLSelectElement).value;
-                    Zotero.debug(`[Seer AI] Save location changed to: ${currentSearchState.saveLocation}`);
+                    Zotero.debug(`[seerai] Save location changed to: ${currentSearchState.saveLocation}`);
                 }
             }]
         }) as HTMLSelectElement;
@@ -1724,7 +1724,7 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
 
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : "Search failed";
-            Zotero.debug(`[Seer AI] Search error: ${error}`);
+            Zotero.debug(`[seerai] Search error: ${error}`);
 
             if (isPagination) {
                 // For pagination errors: only remove loading indicator and show inline error
@@ -1933,7 +1933,7 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
 
         if (papersToCheck.length === 0) return;
 
-        Zotero.debug(`[Seer AI] Batch checking Unpaywall for ${papersToCheck.length} papers`);
+        Zotero.debug(`[seerai] Batch checking Unpaywall for ${papersToCheck.length} papers`);
 
         // Check in parallel (UnpaywallService handles batching internally)
         const dois = papersToCheck.map(p => p.externalIds!.DOI!);
@@ -2317,7 +2317,7 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
                             btn.textContent = "No similar";
                         }
                     } catch (error) {
-                        Zotero.debug(`[Seer AI] Recommendations error: ${error}`);
+                        Zotero.debug(`[seerai] Recommendations error: ${error}`);
                         btn.textContent = "Error";
                     }
                 }
@@ -2494,7 +2494,7 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
             }
         } catch (error) {
             loadingEl.textContent = `Error: ${error instanceof Error ? error.message : "Failed to load"}`;
-            Zotero.debug(`[Seer AI] Author modal error: ${error}`);
+            Zotero.debug(`[seerai] Author modal error: ${error}`);
         }
     }
 
@@ -2512,7 +2512,7 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
      */
     private static async addPaperToZotero(paper: SemanticScholarPaper): Promise<Zotero.Item | null> {
         try {
-            Zotero.debug(`[Seer AI] Adding paper to Zotero: ${paper.title}`);
+            Zotero.debug(`[seerai] Adding paper to Zotero: ${paper.title}`);
 
             // Determine item type based on publication types
             type ZoteroItemType = 'journalArticle' | 'conferencePaper' | 'book';
@@ -2548,7 +2548,7 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
                         targetLibraryId = collection.libraryID;
                     }
                 } catch (e) {
-                    Zotero.debug(`[Seer AI] Error getting collection ${targetCollectionId}: ${e}`);
+                    Zotero.debug(`[seerai] Error getting collection ${targetCollectionId}: ${e}`);
                 }
             }
 
@@ -2595,23 +2595,23 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
 
             // 4. First save to generate item ID (required before collection assignment)
             await newItem.saveTx();
-            Zotero.debug(`[Seer AI] Item saved with ID: ${newItem.id} to library ${targetLibraryId}`);
+            Zotero.debug(`[seerai] Item saved with ID: ${newItem.id} to library ${targetLibraryId}`);
 
             // 5. Add to collection if one was selected
             if (targetCollectionId !== null) {
                 try {
                     newItem.addToCollection(targetCollectionId);
                     await newItem.saveTx(); // Second save to persist collection relationship
-                    Zotero.debug(`[Seer AI] Item added to collection ${targetCollectionId}`);
+                    Zotero.debug(`[seerai] Item added to collection ${targetCollectionId}`);
                 } catch (colError) {
-                    Zotero.debug(`[Seer AI] Error adding to collection: ${colError}`);
+                    Zotero.debug(`[seerai] Error adding to collection: ${colError}`);
                 }
             }
 
             // 6. Attach PDF if open access URL is available, otherwise try Find Full Text
             if (paper.openAccessPdf?.url) {
                 try {
-                    Zotero.debug(`[Seer AI] Downloading PDF from: ${paper.openAccessPdf.url}`);
+                    Zotero.debug(`[seerai] Downloading PDF from: ${paper.openAccessPdf.url}`);
 
                     // Use Zotero's built-in attachment import from URL
                     await Zotero.Attachments.importFromURL({
@@ -2621,15 +2621,15 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
                         contentType: 'application/pdf'
                     });
 
-                    Zotero.debug(`[Seer AI] PDF attached successfully`);
+                    Zotero.debug(`[seerai] PDF attached successfully`);
                 } catch (pdfError) {
                     // PDF download failure - try Find Full Text as fallback
-                    Zotero.debug(`[Seer AI] PDF download failed, trying Find Full Text: ${pdfError}`);
+                    Zotero.debug(`[seerai] PDF download failed, trying Find Full Text: ${pdfError}`);
                     try {
                         await (Zotero.Attachments as any).addAvailablePDF(newItem);
-                        Zotero.debug(`[Seer AI] Find Full Text initiated`);
+                        Zotero.debug(`[seerai] Find Full Text initiated`);
                     } catch (findError) {
-                        Zotero.debug(`[Seer AI] Find Full Text failed (non-fatal): ${findError}`);
+                        Zotero.debug(`[seerai] Find Full Text failed (non-fatal): ${findError}`);
                     }
                 }
             } else {
@@ -2637,40 +2637,40 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
                 const cachedUnpaywallUrl = unpaywallPdfCache.get(paper.paperId);
                 if (cachedUnpaywallUrl) {
                     try {
-                        Zotero.debug(`[Seer AI] Using Unpaywall PDF: ${cachedUnpaywallUrl}`);
+                        Zotero.debug(`[seerai] Using Unpaywall PDF: ${cachedUnpaywallUrl}`);
                         await Zotero.Attachments.importFromURL({
                             url: cachedUnpaywallUrl,
                             parentItemID: newItem.id,
                             title: `${paper.title}.pdf`,
                             contentType: 'application/pdf'
                         });
-                        Zotero.debug(`[Seer AI] Unpaywall PDF attached successfully`);
+                        Zotero.debug(`[seerai] Unpaywall PDF attached successfully`);
                     } catch (pdfError) {
                         // Unpaywall download failed - try Find Full Text
-                        Zotero.debug(`[Seer AI] Unpaywall PDF download failed, trying Find Full Text: ${pdfError}`);
+                        Zotero.debug(`[seerai] Unpaywall PDF download failed, trying Find Full Text: ${pdfError}`);
                         try {
                             await (Zotero.Attachments as any).addAvailablePDF(newItem);
-                            Zotero.debug(`[Seer AI] Find Full Text initiated`);
+                            Zotero.debug(`[seerai] Find Full Text initiated`);
                         } catch (findError) {
-                            Zotero.debug(`[Seer AI] Find Full Text failed (non-fatal): ${findError}`);
+                            Zotero.debug(`[seerai] Find Full Text failed (non-fatal): ${findError}`);
                         }
                     }
                 } else {
                     // No cached Unpaywall PDF - trigger Zotero's "Find Full Text"
                     try {
-                        Zotero.debug(`[Seer AI] No PDF available, initiating Find Full Text...`);
+                        Zotero.debug(`[seerai] No PDF available, initiating Find Full Text...`);
                         await (Zotero.Attachments as any).addAvailablePDF(newItem);
-                        Zotero.debug(`[Seer AI] Find Full Text initiated`);
+                        Zotero.debug(`[seerai] Find Full Text initiated`);
                     } catch (findError) {
                         // Find Full Text failure is non-fatal
-                        Zotero.debug(`[Seer AI] Find Full Text failed (non-fatal): ${findError}`);
+                        Zotero.debug(`[seerai] Find Full Text failed (non-fatal): ${findError}`);
                     }
                 }
             }
 
             return newItem;
         } catch (error) {
-            Zotero.debug(`[Seer AI] Error adding paper to Zotero: ${error}`);
+            Zotero.debug(`[seerai] Error adding paper to Zotero: ${error}`);
             return null;
         }
     }
@@ -3136,7 +3136,7 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
                 }
             }
         } catch (e) {
-            Zotero.debug(`[Seer AI] Error populating filter select: ${e}`);
+            Zotero.debug(`[seerai] Error populating filter select: ${e}`);
         }
     }
 
@@ -3173,7 +3173,7 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
                 }
             }
         } catch (e) {
-            Zotero.debug(`[Seer AI] Error populating save location select: ${e}`);
+            Zotero.debug(`[seerai] Error populating save location select: ${e}`);
         }
     }
 
@@ -3716,7 +3716,7 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
      * Generate AI content for all empty computed columns
      */
     private static async generateAllEmptyColumns(doc: Document, item: Zotero.Item): Promise<void> {
-        Zotero.debug("[Seer AI] Generate All clicked");
+        Zotero.debug("[seerai] Generate All clicked");
 
         if (!currentTableConfig) return;
 
@@ -3726,7 +3726,7 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
         const computedCols = visibleCols.filter(col => col.type === 'computed');
 
         if (computedCols.length === 0) {
-            Zotero.debug("[Seer AI] No computed columns visible");
+            Zotero.debug("[seerai] No computed columns visible");
             return;
         }
 
@@ -3746,7 +3746,7 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
 
         // Get max concurrent from settings
         const maxConcurrent = (Zotero.Prefs.get(`${addon.data.config.prefsPrefix}.aiMaxConcurrent`) as number) || 5;
-        Zotero.debug(`[Seer AI] AI Max concurrent queries: ${maxConcurrent}`);
+        Zotero.debug(`[seerai] AI Max concurrent queries: ${maxConcurrent}`);
 
         // Build tasks by scanning DOM
         interface GenerationTask {
@@ -3799,11 +3799,11 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
         }
 
         if (tasks.length === 0) {
-            Zotero.debug("[Seer AI] No empty cells to generate in visible rows");
+            Zotero.debug("[seerai] No empty cells to generate in visible rows");
             return;
         }
 
-        Zotero.debug(`[Seer AI] ${tasks.length} visible cells to generate`);
+        Zotero.debug(`[seerai] ${tasks.length} visible cells to generate`);
 
         // Update button status
         const generateBtn = doc.getElementById('generate-all-btn') as HTMLButtonElement | null;
@@ -3848,7 +3848,7 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
                     task.td.style.cursor = "default";
                 }
             } catch (e) {
-                Zotero.debug(`[Seer AI] Error generating for ${task.paperId}/${task.col.id}: ${e}`);
+                Zotero.debug(`[seerai] Error generating for ${task.paperId}/${task.col.id}: ${e}`);
                 task.td.innerHTML = `<span style="color: #c62828; font-size: 11px;">Error</span>`;
                 task.td.title = String(e);
                 failed++;
@@ -3881,14 +3881,14 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
             }, 2000);
         }
 
-        Zotero.debug(`[Seer AI] Generation complete: ${generated} generated, ${failed} failed`);
+        Zotero.debug(`[seerai] Generation complete: ${generated} generated, ${failed} failed`);
     }
 
     /**
      * Extract text from all visible PDFs that don't have notes
      */
     private static async extractAllEmptyPDFs(doc: Document, item: Zotero.Item): Promise<void> {
-        Zotero.debug("[Seer AI] Extract All clicked");
+        Zotero.debug("[seerai] Extract All clicked");
 
         // Find all visible rows
         const table = doc.querySelector('.papers-table');
@@ -3899,7 +3899,7 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
 
         // Get max concurrent from settings (OCR-specific setting)
         const maxConcurrent = (Zotero.Prefs.get(`${addon.data.config.prefsPrefix}.datalabMaxConcurrent`) as number) || 5;
-        Zotero.debug(`[Seer AI] OCR Max concurrent: ${maxConcurrent}`);
+        Zotero.debug(`[seerai] OCR Max concurrent: ${maxConcurrent}`);
 
         // Build list of extraction tasks
         interface ExtractionTask {
@@ -3965,11 +3965,11 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
         }
 
         if (tasks.length === 0) {
-            Zotero.debug("[Seer AI] No PDFs to extract");
+            Zotero.debug("[seerai] No PDFs to extract");
             return;
         }
 
-        Zotero.debug(`[Seer AI] ${tasks.length} PDFs to extract`);
+        Zotero.debug(`[seerai] ${tasks.length} PDFs to extract`);
 
         const extractBtn = doc.getElementById('extract-all-btn') as HTMLButtonElement | null;
         const originalBtnText = extractBtn?.innerText || "📄 Extract All";
@@ -4001,7 +4001,7 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
                 });
                 success++;
             } catch (e) {
-                Zotero.debug(`[Seer AI] OCR Error for ${task.paperId}: ${e}`);
+                Zotero.debug(`[seerai] OCR Error for ${task.paperId}: ${e}`);
                 task.tds.forEach(td => {
                     td.innerHTML = `<span style="color: #c62828; font-size: 11px;">OCR Error</span>`;
                     td.title = String(e);
@@ -4069,7 +4069,7 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
         } catch (e) {
             td.innerHTML = `<span style="color: #c62828; font-size: 11px;">Error: ${e}</span>`;
             td.style.cursor = "pointer";
-            Zotero.debug(`[Seer AI] Cell generation error: ${e}`);
+            Zotero.debug(`[seerai] Cell generation error: ${e}`);
         }
     }
 
@@ -4107,7 +4107,7 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
                             break;
                         }
                     } catch (e) {
-                        Zotero.debug(`[Seer AI] Error getting fulltext: ${e}`);
+                        Zotero.debug(`[seerai] Error getting fulltext: ${e}`);
                     }
                 }
             }
@@ -4134,7 +4134,7 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
         } catch (e) {
             td.innerHTML = `<span style="color: #c62828; font-size: 11px;">Error: ${e}</span>`;
             td.style.cursor = "pointer";
-            Zotero.debug(`[Seer AI] PDF extraction error: ${e}`);
+            Zotero.debug(`[seerai] PDF extraction error: ${e}`);
         }
     }
 
@@ -4227,7 +4227,7 @@ Task: ${columnPrompt}`;
 
             return fullResponse.trim();
         } catch (e) {
-            Zotero.debug(`[Seer AI] AI generation error: ${e}`);
+            Zotero.debug(`[seerai] AI generation error: ${e}`);
             throw e;
         }
     }
@@ -4557,7 +4557,7 @@ Task: ${columnPrompt}`;
         }
 
         // Process PDF with DataLabs - this creates a note
-        Zotero.debug("[Seer AI] Processing PDF with OCR...");
+        Zotero.debug("[seerai] Processing PDF with OCR...");
         await ocrService.convertToMarkdown(pdf);
 
         // Wait a moment for the note to be saved
@@ -4569,7 +4569,7 @@ Task: ${columnPrompt}`;
             throw new Error("DataLabs processing completed but no note was created");
         }
 
-        Zotero.debug(`[Seer AI] DataLabs created note, now generating content with ${newNoteIds.length} notes`);
+        Zotero.debug(`[seerai] DataLabs created note, now generating content with ${newNoteIds.length} notes`);
 
         // Now generate content using the new notes
         return this.generateColumnContent(item, col, newNoteIds);
@@ -4590,9 +4590,9 @@ Task: ${columnPrompt}`;
 
             const tableStore = getTableStore();
             await tableStore.saveConfig(currentTableConfig);
-            Zotero.debug(`[Seer AI] Workspace saved with ${paperCount} papers`);
+            Zotero.debug(`[seerai] Workspace saved with ${paperCount} papers`);
         } catch (e) {
-            Zotero.debug(`[Seer AI] Error saving workspace: ${e}`);
+            Zotero.debug(`[seerai] Error saving workspace: ${e}`);
         }
     }
 
@@ -5170,9 +5170,9 @@ Task: ${columnPrompt}`;
             if (currentContainer && currentItem) {
                 this.renderInterface(currentContainer, currentItem);
             }
-            Zotero.debug('[Seer AI] Fresh workspace started');
+            Zotero.debug('[seerai] Fresh workspace started');
         } catch (e) {
-            Zotero.debug(`[Seer AI] Error starting fresh workspace: ${e}`);
+            Zotero.debug(`[seerai] Error starting fresh workspace: ${e}`);
         }
     }
 
@@ -5747,7 +5747,7 @@ Task: ${columnPrompt}`;
             });
 
         } catch (e) {
-            Zotero.debug(`[Seer AI] Error loading table data: ${e}`);
+            Zotero.debug(`[seerai] Error loading table data: ${e}`);
             tableData.error = String(e);
         }
 
@@ -6200,7 +6200,7 @@ Task: ${columnPrompt}`;
         try {
             const tableData = await this.loadTableData();
             if (tableData.rows.length === 0) {
-                Zotero.debug('[Seer AI] No data to export');
+                Zotero.debug('[seerai] No data to export');
                 return;
             }
 
@@ -6233,7 +6233,7 @@ Task: ${columnPrompt}`;
             const encoder = new TextEncoder();
             await IOUtils.write(filepath, encoder.encode(csvContent));
 
-            Zotero.debug(`[Seer AI] Table exported to: ${filepath}`);
+            Zotero.debug(`[seerai] Table exported to: ${filepath}`);
 
             // Show success notification
             const progressWindow = new Zotero.ProgressWindow({ closeOnClick: true });
@@ -6243,7 +6243,7 @@ Task: ${columnPrompt}`;
             progressWindow.startCloseTimer(3000);
 
         } catch (e) {
-            Zotero.debug(`[Seer AI] Error exporting table: ${e}`);
+            Zotero.debug(`[seerai] Error exporting table: ${e}`);
         }
     }
 
@@ -6269,7 +6269,7 @@ Task: ${columnPrompt}`;
             }
             return null;
         } catch (e) {
-            Zotero.debug(`[Seer AI] Error finding Tables note: ${e}`);
+            Zotero.debug(`[seerai] Error finding Tables note: ${e}`);
             return null;
         }
     }
@@ -6292,7 +6292,7 @@ Task: ${columnPrompt}`;
                 data[columnName] = value;
             }
         } catch (e) {
-            Zotero.debug(`[Seer AI] Error parsing Tables note: ${e}`);
+            Zotero.debug(`[seerai] Error parsing Tables note: ${e}`);
         }
         return data;
     }
@@ -6341,7 +6341,7 @@ ${tableRows}  </tbody>
         try {
             const parentItem = Zotero.Items.get(row.paperId);
             if (!parentItem || !parentItem.isRegularItem()) {
-                Zotero.debug(`[Seer AI] Cannot save note: Invalid parent item ${row.paperId}`);
+                Zotero.debug(`[seerai] Cannot save note: Invalid parent item ${row.paperId}`);
                 return false;
             }
 
@@ -6373,7 +6373,7 @@ ${tableRows}  </tbody>
                 existingNote.setNote(newContent);
                 await existingNote.saveTx();
 
-                Zotero.debug(`[Seer AI] Updated existing Tables note for: ${paperTitle}`);
+                Zotero.debug(`[seerai] Updated existing Tables note for: ${paperTitle}`);
             } else {
                 // Create new note
                 const note = new Zotero.Item('note');
@@ -6384,12 +6384,12 @@ ${tableRows}  </tbody>
                 note.setNote(noteContent);
                 await note.saveTx();
 
-                Zotero.debug(`[Seer AI] Created new Tables note for: ${paperTitle}`);
+                Zotero.debug(`[seerai] Created new Tables note for: ${paperTitle}`);
             }
 
             return true;
         } catch (e) {
-            Zotero.debug(`[Seer AI] Error saving row as note: ${e}`);
+            Zotero.debug(`[seerai] Error saving row as note: ${e}`);
             return false;
         }
     }
@@ -6401,7 +6401,7 @@ ${tableRows}  </tbody>
         try {
             const tableData = await this.loadTableData();
             if (tableData.rows.length === 0) {
-                Zotero.debug('[Seer AI] No rows to save as notes');
+                Zotero.debug('[seerai] No rows to save as notes');
                 return;
             }
 
@@ -6429,9 +6429,9 @@ ${tableRows}  </tbody>
             progressWindow.addDescription(`Saved: ${saved} | Failed: ${failed}`);
             progressWindow.startCloseTimer(3000);
 
-            Zotero.debug(`[Seer AI] Batch save complete: ${saved} saved, ${failed} failed`);
+            Zotero.debug(`[seerai] Batch save complete: ${saved} saved, ${failed} failed`);
         } catch (e) {
-            Zotero.debug(`[Seer AI] Error in batch save: ${e}`);
+            Zotero.debug(`[seerai] Error in batch save: ${e}`);
         }
     }
 
@@ -6513,7 +6513,7 @@ ${tableRows}  </tbody>
             listeners: [{
                 type: "click",
                 listener: () => {
-                    Zotero.debug("[Seer AI] Add Papers button clicked");
+                    Zotero.debug("[seerai] Add Papers button clicked");
                     this.showPaperPicker(doc, stateManager);
                 }
             }]
@@ -6535,7 +6535,7 @@ ${tableRows}  </tbody>
             listeners: [{
                 type: "click",
                 listener: () => {
-                    Zotero.debug("[Seer AI] Add by Tag button clicked");
+                    Zotero.debug("[seerai] Add by Tag button clicked");
                     this.showTagPicker(doc, stateManager);
                 }
             }]
@@ -6557,7 +6557,7 @@ ${tableRows}  </tbody>
             listeners: [{
                 type: "click",
                 listener: () => {
-                    Zotero.debug("[Seer AI] Add Table button clicked");
+                    Zotero.debug("[seerai] Add Table button clicked");
                     this.showChatTablePicker(doc, stateManager);
                 }
             }]
@@ -7223,7 +7223,7 @@ ${tableRows}  </tbody>
             } catch (e) {
                 listContainer.innerHTML = "";
                 listContainer.appendChild(ztoolkit.UI.createElement(doc, "div", { properties: { innerText: "Error loading papers." }, styles: { color: "red", padding: "10px" } }));
-                Zotero.debug(`[Seer AI] Error loading papers: ${e}`);
+                Zotero.debug(`[seerai] Error loading papers: ${e}`);
             }
         };
 
@@ -7297,7 +7297,7 @@ ${tableRows}  </tbody>
                     }
                 }
             } catch (e) {
-                Zotero.debug(`[Seer AI] Error adding items from collection: ${e}`);
+                Zotero.debug(`[seerai] Error adding items from collection: ${e}`);
             }
         } else {
             // Get items from specified library or all libraries
@@ -7323,7 +7323,7 @@ ${tableRows}  </tbody>
             }
         }
 
-        Zotero.debug(`[Seer AI] Added ${addedCount} items from ${tagNames.length} tag(s)`);
+        Zotero.debug(`[seerai] Added ${addedCount} items from ${tagNames.length} tag(s)`);
     }
 
     /**
@@ -7333,7 +7333,7 @@ ${tableRows}  </tbody>
         const selectedItems = Zotero.getActiveZoteroPane()?.getSelectedItems() || [];
 
         if (selectedItems.length === 0) {
-            Zotero.debug("[Seer AI] No items selected in library pane");
+            Zotero.debug("[seerai] No items selected in library pane");
             return;
         }
 
@@ -7345,7 +7345,7 @@ ${tableRows}  </tbody>
             }
         }
 
-        Zotero.debug(`[Seer AI] Added ${added} items with notes to chat context`);
+        Zotero.debug(`[seerai] Added ${added} items with notes to chat context`);
     }
 
     /**
@@ -7379,7 +7379,7 @@ ${tableRows}  </tbody>
                     addCollectionsRecursive(null, 0);
                 }
             } catch (e) {
-                Zotero.debug(`[Seer AI] Error loading collections from library ${library.name}: ${e}`);
+                Zotero.debug(`[seerai] Error loading collections from library ${library.name}: ${e}`);
             }
         }
 
@@ -7481,7 +7481,7 @@ ${tableRows}  </tbody>
                 listener: (e: Event) => {
                     const select = e.target as HTMLSelectElement;
                     setActiveModelId(select.value);
-                    Zotero.debug(`[Seer AI] Active model changed to: ${select.value}`);
+                    Zotero.debug(`[seerai] Active model changed to: ${select.value}`);
                 }
             }]
         }) as HTMLSelectElement;
@@ -7600,10 +7600,10 @@ ${tableRows}  </tbody>
                     try {
                         await getMessageStore().clearMessages();
                     } catch (e) {
-                        Zotero.debug(`[Seer AI] Error clearing message store: ${e}`);
+                        Zotero.debug(`[seerai] Error clearing message store: ${e}`);
                     }
 
-                    Zotero.debug("[Seer AI] Chat history cleared");
+                    Zotero.debug("[seerai] Chat history cleared");
                 }
             }]
         });
@@ -7934,7 +7934,7 @@ ${tableRows}  </tbody>
                                             mimeType: item.type
                                         });
                                         updateImagePreview();
-                                        Zotero.debug(`[Seer AI] Pasted image: ${item.type}`);
+                                        Zotero.debug(`[seerai] Pasted image: ${item.type}`);
                                     };
                                     reader.readAsDataURL(blob);
                                 }
@@ -8004,7 +8004,7 @@ ${tableRows}  </tbody>
         try {
             await getMessageStore().appendMessage(userMsg);
         } catch (e) {
-            Zotero.debug(`[Seer AI] Error saving user message: ${e}`);
+            Zotero.debug(`[seerai] Error saving user message: ${e}`);
         }
 
         this.appendMessage(messagesArea, "You", text, userMsg.id, true);
@@ -8078,7 +8078,7 @@ Be concise, accurate, and helpful. When referencing papers, cite them by title o
                 const imageParts = await createImageContentParts(zoteroItems, 5);
 
                 if (imageParts.length > 0) {
-                    Zotero.debug(`[Seer AI] Including ${imageParts.length} images in request`);
+                    Zotero.debug(`[seerai] Including ${imageParts.length} images in request`);
 
                     // Build user message with images
                     const userMessageContent: VisionMessageContentPart[] = [
@@ -8150,7 +8150,7 @@ Be concise, accurate, and helpful. When referencing papers, cite them by title o
                     try {
                         await getMessageStore().appendMessage(assistantMsg);
                     } catch (e) {
-                        Zotero.debug(`[Seer AI] Error saving assistant message: ${e}`);
+                        Zotero.debug(`[seerai] Error saving assistant message: ${e}`);
                     }
 
                     // Final render with markdown
@@ -8211,7 +8211,7 @@ Be concise, accurate, and helpful. When referencing papers, cite them by title o
         try {
             await getMessageStore().appendMessage(userMsg);
         } catch (e) {
-            Zotero.debug(`[Seer AI] Error saving user message: ${e}`);
+            Zotero.debug(`[seerai] Error saving user message: ${e}`);
         }
 
         const displayText = pastedImages.length > 0
@@ -8286,7 +8286,7 @@ Be concise, accurate, and helpful. When referencing papers, cite them by title o
                 });
             }
 
-            Zotero.debug(`[Seer AI] Sending message with ${pastedImages.length} pasted images`);
+            Zotero.debug(`[seerai] Sending message with ${pastedImages.length} pasted images`);
 
             const messages: (OpenAIMessage | VisionMessage)[] = [
                 { role: "system", content: systemPrompt },
@@ -8328,7 +8328,7 @@ Be concise, accurate, and helpful. When referencing papers, cite them by title o
                     try {
                         await getMessageStore().appendMessage(assistantMsg);
                     } catch (e) {
-                        Zotero.debug(`[Seer AI] Error saving assistant message: ${e}`);
+                        Zotero.debug(`[seerai] Error saving assistant message: ${e}`);
                     }
 
                     // Clear pasted images after successful send
@@ -8526,9 +8526,9 @@ Be concise, accurate, and helpful. When referencing papers, cite them by title o
                 buttonElement.innerText = originalText;
             }, 1500);
 
-            Zotero.debug("[Seer AI] Copied message to clipboard");
+            Zotero.debug("[seerai] Copied message to clipboard");
         } catch (e) {
-            Zotero.debug(`[Seer AI] ztoolkit.Clipboard failed: ${e}`);
+            Zotero.debug(`[seerai] ztoolkit.Clipboard failed: ${e}`);
             // Visual feedback - failure
             buttonElement.innerText = "❌";
             setTimeout(() => {
@@ -8822,7 +8822,7 @@ Be concise, accurate, and helpful. When referencing papers, cite them by title o
      */
     private static async saveConversationAsNote() {
         if (conversationMessages.length === 0) {
-            Zotero.debug("[Seer AI] No messages to save");
+            Zotero.debug("[seerai] No messages to save");
             return;
         }
 
@@ -8831,7 +8831,7 @@ Be concise, accurate, and helpful. When referencing papers, cite them by title o
 
         const parentItem = states.items[0];
         if (!parentItem) {
-            Zotero.debug("[Seer AI] No items to attach note to");
+            Zotero.debug("[seerai] No items to attach note to");
             return;
         }
 
@@ -8852,9 +8852,9 @@ Be concise, accurate, and helpful. When referencing papers, cite them by title o
             note.setNote(noteContent);
             note.parentID = zoteroItem.id;
             await note.saveTx();
-            Zotero.debug("[Seer AI] Conversation saved as note");
+            Zotero.debug("[seerai] Conversation saved as note");
         } catch (error) {
-            Zotero.debug(`[Seer AI] Failed to save note: ${error}`);
+            Zotero.debug(`[seerai] Failed to save note: ${error}`);
         }
     }
 }
