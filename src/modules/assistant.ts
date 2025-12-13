@@ -29,6 +29,7 @@ import {
     PUBLICATION_TYPES,
 } from "./semanticScholar";
 import { firecrawlService, PdfDiscoveryResult } from "./firecrawl";
+import { getTheme } from "../utils/theme";
 
 // Debounce timer for autocomplete
 let autocompleteTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -252,6 +253,21 @@ export class Assistant {
     private static async renderInterface(container: HTMLElement, item: Zotero.Item) {
         container.innerHTML = "";
         const doc = container.ownerDocument!;
+
+        // Ensure stylesheet is loaded
+        const styleId = "seerai-stylesheet";
+        if (!doc.getElementById(styleId)) {
+            const link = ztoolkit.UI.createElement(doc, "link", {
+                properties: {
+                    id: styleId,
+                    type: "text/css",
+                    rel: "stylesheet",
+                    href: `chrome://${config.addonRef}/content/zoteroPane.css`
+                }
+            });
+            doc.documentElement?.appendChild(link);
+        }
+
         const stateManager = getChatStateManager();
 
         // Load persisted messages if not already loaded
@@ -486,7 +502,7 @@ export class Assistant {
 
         if (tableData.rows.length === 0) {
             // Empty state
-            const emptyState = this.createTableEmptyState(doc);
+            const emptyState = this.createTableEmptyState(doc, item);
             tableWrapper.appendChild(emptyState);
         } else {
             // Render table
@@ -5426,7 +5442,7 @@ Task: ${columnPrompt}`;
     /**
      * Create empty state for table
      */
-    private static createTableEmptyState(doc: Document): HTMLElement {
+    private static createTableEmptyState(doc: Document, item: Zotero.Item): HTMLElement {
         const emptyState = ztoolkit.UI.createElement(doc, "div", {
             properties: { className: "table-empty-state" },
             styles: {
@@ -5447,12 +5463,34 @@ Task: ${columnPrompt}`;
         });
 
         const text = ztoolkit.UI.createElement(doc, "div", {
-            properties: { className: "table-empty-state-text", innerText: "No papers with matching notes found. Add papers to your library with notes that share titles to see them here." },
+            properties: { className: "table-empty-state-text", innerText: "Start by adding papers to create a comparison table." },
             styles: { fontSize: "13px" }
         });
-
         emptyState.appendChild(icon);
         emptyState.appendChild(text);
+
+        // Add Button
+        const addBtn = ztoolkit.UI.createElement(doc, "button", {
+            properties: { innerText: "➕ Add Papers" },
+            styles: {
+                marginTop: "12px",
+                padding: "8px 16px",
+                fontSize: "13px",
+                border: "none",
+                borderRadius: "6px",
+                backgroundColor: "var(--highlight-primary)",
+                color: "var(--highlight-text)",
+                cursor: "pointer",
+                fontWeight: "500"
+            },
+            listeners: [{
+                type: "click",
+                listener: () => {
+                    this.showTablePaperPicker(doc, item);
+                }
+            }]
+        });
+        emptyState.appendChild(addBtn);
 
         return emptyState;
     }
@@ -5476,7 +5514,111 @@ Task: ${columnPrompt}`;
         const headerRow = ztoolkit.UI.createElement(doc, "tr", {});
 
         const columns = currentTableConfig?.columns || defaultColumns;
-        columns.filter(col => col.visible).forEach(col => {
+
+        // Core columns to combine into "Paper"
+        const coreColumnIds = ['title', 'author', 'year', 'sources'];
+        const otherColumns = columns.filter(col => col.visible && !coreColumnIds.includes(col.id));
+
+        // Paper column width (stored in config or default to 280)
+        let paperColumnWidth = (currentTableConfig as any)?.paperColumnWidth ?? 280;
+
+        // Add combined "Paper" header (for title, author, year, sources)
+        const paperHeader = ztoolkit.UI.createElement(doc, "th", {
+            properties: { innerText: "Paper", className: "sortable" },
+            styles: {
+                position: "relative",
+                backgroundColor: "var(--background-secondary)",
+                borderBottom: "1px solid rgba(128, 128, 128, 0.4)",
+                borderRight: "1px solid rgba(128, 128, 128, 0.4)",
+                padding: "8px 10px",
+                textAlign: "left",
+                fontWeight: "600",
+                width: `${paperColumnWidth}px`,
+                minWidth: "40px",
+                cursor: "pointer",
+                userSelect: "none"
+            },
+            listeners: [{
+                type: "click",
+                listener: async () => {
+                    if (currentTableConfig) {
+                        if (currentTableConfig.sortBy === 'title') {
+                            currentTableConfig.sortOrder = currentTableConfig.sortOrder === 'asc' ? 'desc' : 'asc';
+                        } else {
+                            currentTableConfig.sortBy = 'title';
+                            currentTableConfig.sortOrder = 'asc';
+                        }
+                        const tableStore = getTableStore();
+                        await tableStore.saveConfig(currentTableConfig);
+                        if (currentContainer && currentItem) {
+                            this.renderInterface(currentContainer, currentItem);
+                        }
+                    }
+                }
+            }]
+        });
+
+        // Add resize handle for Paper column
+        const paperResizeHandle = ztoolkit.UI.createElement(doc, "div", {
+            properties: { className: "column-resize-handle" },
+            styles: {
+                position: "absolute",
+                right: "0",
+                top: "0",
+                bottom: "0",
+                width: "6px",
+                cursor: "col-resize",
+                backgroundColor: "transparent"
+            }
+        });
+        paperResizeHandle.addEventListener("mouseenter", () => {
+            (paperResizeHandle as HTMLElement).style.backgroundColor = "var(--highlight-primary)";
+        });
+        paperResizeHandle.addEventListener("mouseleave", () => {
+            (paperResizeHandle as HTMLElement).style.backgroundColor = "transparent";
+        });
+        paperResizeHandle.addEventListener("mousedown", (e: MouseEvent) => {
+            e.preventDefault();
+            e.stopPropagation();
+
+            const startX = e.clientX;
+            const startWidth = paperColumnWidth;
+
+            const onMouseMove = (moveE: MouseEvent) => {
+                const delta = moveE.clientX - startX;
+                const newWidth = Math.max(40, startWidth + delta);
+                paperColumnWidth = newWidth;
+
+                // Update header width
+                (paperHeader as HTMLElement).style.width = `${newWidth}px`;
+
+                // Update all Paper cells (first column)
+                const cells = table.querySelectorAll(`td:nth-child(1), th:nth-child(1)`);
+                cells.forEach((cell: Element) => {
+                    (cell as HTMLElement).style.width = `${newWidth}px`;
+                });
+            };
+
+            const onMouseUp = async () => {
+                doc.removeEventListener("mousemove", onMouseMove);
+                doc.removeEventListener("mouseup", onMouseUp);
+
+                // Save Paper column width
+                if (currentTableConfig) {
+                    (currentTableConfig as any).paperColumnWidth = paperColumnWidth;
+                    const tableStore = getTableStore();
+                    await tableStore.saveConfig(currentTableConfig);
+                }
+            };
+
+            doc.addEventListener("mousemove", onMouseMove);
+            doc.addEventListener("mouseup", onMouseUp);
+        });
+        paperHeader.appendChild(paperResizeHandle);
+        headerRow.appendChild(paperHeader);
+
+        // Add other column headers (computed/custom columns)
+        otherColumns.forEach(col => {
             const th = ztoolkit.UI.createElement(doc, "th", {
                 properties: {
                     innerText: col.name,
@@ -5549,7 +5691,7 @@ Task: ${columnPrompt}`;
 
                     const startX = e.clientX;
                     const startWidth = col.width;
-                    const colIndex = columns.findIndex(c => c.id === col.id);
+                    const colIndex = otherColumns.findIndex(c => c.id === col.id) + 1; // +1 for Paper column
 
                     const onMouseMove = (moveE: MouseEvent) => {
                         const delta = moveE.clientX - startX;
@@ -5559,7 +5701,7 @@ Task: ${columnPrompt}`;
                         // Update header width
                         th.style.width = `${newWidth}px`;
 
-                        // Update all cells in this column
+                        // Update all cells in this column (+2 because Paper is +1 and nth-child is 1-indexed)
                         const cells = table.querySelectorAll(`td:nth-child(${colIndex + 1}), th:nth-child(${colIndex + 1})`);
                         cells.forEach((cell: Element) => {
                             (cell as HTMLElement).style.width = `${newWidth}px`;
@@ -5630,7 +5772,78 @@ Task: ${columnPrompt}`;
                 }]
             });
 
-            columns.filter(col => col.visible).forEach(col => {
+            // Create combined "Paper" cell (title, author, year, sources)
+            const paperCell = ztoolkit.UI.createElement(doc, "td", {
+                styles: {
+                    padding: "8px 10px",
+                    borderBottom: "1px solid rgba(128, 128, 128, 0.4)",
+                    borderRight: "1px solid rgba(128, 128, 128, 0.4)",
+                    verticalAlign: "top",
+                    cursor: "pointer",
+                    width: `${paperColumnWidth}px`,
+                    minWidth: "40px"
+                }
+            });
+
+            // Title (clickable, opens PDF)
+            const titleDiv = ztoolkit.UI.createElement(doc, "div", {
+                properties: { innerText: row.data['title'] || 'Untitled' },
+                styles: {
+                    fontWeight: "600",
+                    fontSize: "12px",
+                    color: "var(--highlight-primary)",
+                    marginBottom: "3px",
+                    lineHeight: "1.4",
+                    whiteSpace: "normal",
+                    wordBreak: "break-word"
+                }
+            }) as HTMLDivElement;
+            titleDiv.addEventListener("mouseenter", () => { titleDiv.style.textDecoration = "underline"; });
+            titleDiv.addEventListener("mouseleave", () => { titleDiv.style.textDecoration = "none"; });
+            titleDiv.addEventListener("click", async (e) => {
+                e.stopPropagation();
+                const item = Zotero.Items.get(row.paperId);
+                if (item) {
+                    const attachmentIds = item.getAttachments();
+                    for (const attachId of attachmentIds) {
+                        const attachment = Zotero.Items.get(attachId);
+                        if (attachment && attachment.isPDFAttachment && attachment.isPDFAttachment()) {
+                            await Zotero.Reader.open(attachment.id);
+                            return;
+                        }
+                    }
+                    // Fallback: select item in library
+                    const zp = Zotero.getActiveZoteroPane();
+                    if (zp) zp.selectItem(item.id);
+                }
+            });
+            paperCell.appendChild(titleDiv);
+
+            // Author, Year, Sources on one line
+            const author = row.data['author'] || '';
+            const year = row.data['year'] || '';
+            const sources = row.data['sources'] || '0';
+            const metaText = [
+                author ? `${author.length > 30 ? author.substring(0, 30) + '...' : author}` : '',
+                year ? `(${year})` : '',
+                `📝 ${sources}`
+            ].filter(Boolean).join(' · ');
+
+            const metaDiv = ztoolkit.UI.createElement(doc, "div", {
+                properties: { innerText: metaText },
+                styles: {
+                    fontSize: "10px",
+                    color: "var(--text-secondary)",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap"
+                }
+            });
+            paperCell.appendChild(metaDiv);
+            tr.appendChild(paperCell);
+
+            // Render other columns (computed/custom only)
+            otherColumns.forEach(col => {
                 const cellValue = row.data[col.id] || "";
                 const isComputed = col.type === 'computed';
                 const isEmpty = !cellValue || cellValue.trim() === '';
@@ -5642,29 +5855,20 @@ Task: ${columnPrompt}`;
                         borderRight: "1px solid rgba(128, 128, 128, 0.4)",
                         overflow: "hidden",
                         textOverflow: "ellipsis",
-                        whiteSpace: "normal",           // Allow wrapping
-                        wordBreak: "break-word",        // Break long words
+                        whiteSpace: "normal",
+                        wordBreak: "break-word",
                         maxWidth: `${col.width}px`,
                         width: `${col.width}px`,
-                        maxHeight: "60px",              // Limit to ~3 lines
+                        maxHeight: "60px",
                         lineHeight: "1.4",
                         verticalAlign: "top",
-                        cursor: "pointer",
-                        // Style title column as a link
-                        color: col.id === 'title' ? "var(--highlight-primary)" : "inherit"
+                        cursor: "pointer"
                     }
                 });
-
-                // Add hover effect for title column
-                if (col.id === 'title') {
-                    td.addEventListener("mouseenter", () => { td.style.textDecoration = "underline"; });
-                    td.addEventListener("mouseleave", () => { td.style.textDecoration = "none"; });
-                }
 
                 // Show content or empty indicator
                 if (isEmpty && isComputed) {
                     const hasNotes = row.noteIds && row.noteIds.length > 0;
-                    // Check for PDF to show appropriate indicator
                     const itemForIndicator = Zotero.Items.get(row.paperId);
                     const attachmentsForIndicator = itemForIndicator?.getAttachments() || [];
                     const hasPDFForIndicator = attachmentsForIndicator.some((attId: number) => {
@@ -5673,49 +5877,24 @@ Task: ${columnPrompt}`;
                     });
 
                     if (hasNotes) {
-                        td.innerHTML = `<span style="color: var(--highlight-primary); font-size: 11px;">⚡ Click to generate</span>`;
+                        td.innerHTML = `<span style="color: var(--highlight-primary); font-size: 11px;">⚡ Generate</span>`;
                     } else if (hasPDFForIndicator) {
-                        td.innerHTML = `<span style="color: var(--highlight-primary); font-size: 11px;">📄 Click to process PDF</span>`;
+                        td.innerHTML = `<span style="color: var(--highlight-primary); font-size: 11px;">📄 Process PDF</span>`;
                     } else {
-                        td.innerHTML = `<span style="color: var(--text-tertiary); font-size: 11px; font-style: italic;">Empty - no notes/PDF</span>`;
+                        td.innerHTML = `<span style="color: var(--text-tertiary); font-size: 11px; font-style: italic;">No source</span>`;
                     }
                 } else {
-                    // Render markdown in cell content
                     td.innerHTML = parseMarkdown(cellValue);
                 }
 
-                // Click behavior depends on CURRENT cell content (not render-time state)
+                // Click behavior
                 td.addEventListener("click", async (e) => {
                     e.stopPropagation();
 
-                    // Special handling for title column - open PDF
-                    if (col.id === 'title') {
-                        const item = Zotero.Items.get(row.paperId);
-                        if (item) {
-                            const attachmentIds = item.getAttachments();
-                            for (const attachId of attachmentIds) {
-                                const attachment = Zotero.Items.get(attachId);
-                                if (attachment && attachment.isPDFAttachment && attachment.isPDFAttachment()) {
-                                    // Open the PDF in Zotero's reader
-                                    await Zotero.Reader.open(attachment.id);
-                                    return;
-                                }
-                            }
-                            // Fallback: if no PDF, just select the item in the library
-                            const zp = Zotero.getActiveZoteroPane();
-                            if (zp) {
-                                zp.selectItem(item.id);
-                            }
-                        }
-                        return;
-                    }
-
-                    // Check current state at click time (not the captured isEmpty)
                     const currentValue = row.data[col.id] || "";
                     const currentlyEmpty = !currentValue || currentValue.trim() === '';
                     const hasNotes = row.noteIds && row.noteIds.length > 0;
 
-                    // Check for PDF
                     const item = Zotero.Items.get(row.paperId);
                     const attachments = item?.getAttachments() || [];
                     const hasPDF = attachments.some((attId: number) => {
@@ -5724,10 +5903,8 @@ Task: ${columnPrompt}`;
                     });
 
                     if (currentlyEmpty && isComputed) {
-                        // Empty computed cell - auto-generate immediately
                         if (hasNotes || hasPDF) {
-                            // Show generating indicator
-                            td.innerHTML = `<span style="color: var(--text-tertiary); font-size: 11px;">⏳ ${hasNotes ? 'Generating...' : 'Processing PDF with OCR...'}</span>`;
+                            td.innerHTML = `<span style="color: var(--text-tertiary); font-size: 11px;">⏳ ${hasNotes ? 'Generating...' : 'Processing...'}</span>`;
                             td.style.cursor = "wait";
 
                             try {
@@ -5736,32 +5913,24 @@ Task: ${columnPrompt}`;
                                         ? await this.generateColumnContent(item, col, row.noteIds)
                                         : await this.generateFromPDF(item, col);
 
-                                    // Update row data
                                     row.data[col.id] = content;
-                                    td.innerHTML = content ? parseMarkdown(content) : '<span style="color: var(--text-tertiary); font-size: 11px; font-style: italic;">(No content)</span>';
+                                    td.innerHTML = content ? parseMarkdown(content) : '<span style="color: var(--text-tertiary); font-size: 11px;">(Empty)</span>';
                                     td.style.cursor = "pointer";
 
-                                    // Save to generatedData for persistence
                                     if (currentTableConfig) {
-                                        if (!currentTableConfig.generatedData) {
-                                            currentTableConfig.generatedData = {};
-                                        }
-                                        if (!currentTableConfig.generatedData[row.paperId]) {
-                                            currentTableConfig.generatedData[row.paperId] = {};
-                                        }
+                                        if (!currentTableConfig.generatedData) currentTableConfig.generatedData = {};
+                                        if (!currentTableConfig.generatedData[row.paperId]) currentTableConfig.generatedData[row.paperId] = {};
                                         currentTableConfig.generatedData[row.paperId][col.id] = content;
-
                                         const tableStore = getTableStore();
                                         await tableStore.saveConfig(currentTableConfig);
                                     }
                                 }
                             } catch (err) {
-                                td.innerHTML = `<span style="color: #c62828; font-size: 11px;">Error: ${err}</span>`;
+                                td.innerHTML = `<span style="color: #c62828; font-size: 11px;">Error</span>`;
                                 td.style.cursor = "pointer";
                             }
                         }
                     } else {
-                        // Cell has content or is not computed - show modal to view/regenerate
                         this.showCellDetailModal(doc, row, col, row.data[col.id] || "");
                     }
                 });
@@ -5833,7 +6002,68 @@ Task: ${columnPrompt}`;
 
         table.appendChild(tbody);
 
-        return table;
+        // Wrap table in a flex container with a + button on the right
+        const tableWithAddBtn = ztoolkit.UI.createElement(doc, "div", {
+            styles: {
+                display: "flex",
+                flexDirection: "row",
+                width: "100%"
+            }
+        });
+
+        // Table container (takes remaining space)
+        const tableContainer = ztoolkit.UI.createElement(doc, "div", {
+            styles: {
+                flex: "1",
+                overflow: "auto"
+            }
+        });
+        tableContainer.appendChild(table);
+        tableWithAddBtn.appendChild(tableContainer);
+
+        // Add column button on the right side (full height)
+        const addColumnBtn = ztoolkit.UI.createElement(doc, "div", {
+            properties: { innerText: "+" },
+            attributes: { title: "Add new column" },
+            styles: {
+                width: "32px",
+                minWidth: "32px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: "var(--background-tertiary)",
+                borderLeft: "1px solid var(--border-primary)",
+                fontSize: "18px",
+                fontWeight: "700",
+                color: "var(--highlight-primary)",
+                cursor: "pointer",
+                transition: "all 0.15s ease",
+                flexShrink: "0"
+            }
+        });
+
+        // Click handler
+        const self = this;
+        addColumnBtn.addEventListener("click", (e: Event) => {
+            e.stopPropagation();
+            e.preventDefault();
+            Zotero.debug("[seerai] + button clicked");
+            self.showQuickAddColumnDropdown(doc, addColumnBtn as HTMLElement);
+        });
+
+        // Hover effect
+        addColumnBtn.addEventListener("mouseenter", () => {
+            addColumnBtn.style.backgroundColor = "var(--highlight-primary)";
+            addColumnBtn.style.color = "var(--highlight-text)";
+        });
+        addColumnBtn.addEventListener("mouseleave", () => {
+            addColumnBtn.style.backgroundColor = "var(--background-tertiary)";
+            addColumnBtn.style.color = "var(--highlight-primary)";
+        });
+
+        tableWithAddBtn.appendChild(addColumnBtn);
+
+        return tableWithAddBtn;
     }
 
     // Debounce timer for table refresh
@@ -5854,7 +6084,7 @@ Task: ${columnPrompt}`;
                     const tableData = await this.loadTableData();
                     tableWrapper.innerHTML = '';
                     if (tableData.rows.length === 0) {
-                        tableWrapper.appendChild(this.createTableEmptyState(doc));
+                        tableWrapper.appendChild(this.createTableEmptyState(doc, item));
                     } else {
                         tableWrapper.appendChild(this.createPapersTable(doc, tableData));
                     }
@@ -5945,67 +6175,116 @@ Task: ${columnPrompt}`;
     }
 
     /**
-     * Show column manager modal for adding/removing columns
+     * Show column manager as a dropdown panel (like paper picker)
      */
     private static showColumnManagerModal(doc: Document, item: Zotero.Item): void {
-        // Remove existing modal if any
-        const existing = doc.getElementById('column-manager-modal');
+        // Toggle existing dropdown
+        const existing = doc.getElementById('column-manager-dropdown') as HTMLElement;
         if (existing) {
-            existing.remove();
+            existing.style.opacity = "0";
+            existing.style.transform = "translateY(-10px)";
+            setTimeout(() => existing.remove(), 200);
             return;
         }
 
-        const win = doc.defaultView;
-        const isDarkMode = (win as any)?.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false;
+        // Find the toolbar to position dropdown below it
+        const toolbar = doc.querySelector('.table-toolbar') as HTMLElement;
+        const tabContent = doc.getElementById('tab-content');
+        if (!toolbar || !tabContent) return;
 
-        // Create modal overlay
-        const overlay = ztoolkit.UI.createElement(doc, 'div', {
-            properties: { id: 'column-manager-modal' },
+        // Helper to close dropdown with animation
+        const closeDropdown = () => {
+            dropdown.style.opacity = "0";
+            dropdown.style.transform = "translateY(-10px)";
+            setTimeout(() => dropdown.remove(), 200);
+        };
+
+        // Create dropdown panel
+        const dropdown = ztoolkit.UI.createElement(doc, 'div', {
+            properties: { id: 'column-manager-dropdown' },
             styles: {
-                position: 'fixed',
-                top: '0',
-                left: '0',
-                width: '100%',
-                height: '100%',
-                backgroundColor: 'rgba(0,0,0,0.5)',
+                backgroundColor: 'var(--background-primary)',
+                borderRadius: '8px',
+                padding: '0',
+                boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
+                overflow: 'hidden',
+                border: '1px solid var(--border-primary)',
+                transition: 'all 0.2s ease-out',
+                opacity: '0',
+                transform: 'translateY(-10px)',
+                marginTop: '4px',
+                marginLeft: '8px',
+                marginRight: '8px',
+                maxHeight: '70vh',
                 display: 'flex',
-                justifyContent: 'center',
-                alignItems: 'center',
-                zIndex: '10000'
+                flexDirection: 'column'
             }
         });
 
-        // Create dialog
-        const dialog = ztoolkit.UI.createElement(doc, 'div', {
+        // Header with gradient
+        const header = ztoolkit.UI.createElement(doc, 'div', {
             styles: {
-                backgroundColor: `var(--background-primary, ${isDarkMode ? '#333333' : '#fafafa'})`,
-                color: `var(--text-primary, ${isDarkMode ? '#eeeeee' : '#212121'})`,
-                borderRadius: '12px',
-                padding: '20px',
-                maxWidth: '400px',
-                width: '90%',
-                maxHeight: '80vh',
+                background: 'linear-gradient(135deg, var(--highlight-primary) 0%, color-mix(in srgb, var(--highlight-primary) 80%, purple) 100%)',
+                padding: '10px 14px',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: '12px'
+            }
+        });
+
+        const headerTitle = ztoolkit.UI.createElement(doc, 'div', {
+            properties: { innerText: '⚙️ Manage Columns' },
+            styles: {
+                fontSize: '13px',
+                fontWeight: '600',
+                color: 'var(--highlight-text)',
+                textShadow: '0 1px 2px rgba(0,0,0,0.1)'
+            }
+        });
+        header.appendChild(headerTitle);
+
+        const closeBtn = ztoolkit.UI.createElement(doc, 'button', {
+            properties: { innerText: '✕' },
+            styles: {
+                background: 'rgba(0,0,0,0.1)',
+                border: 'none',
+                borderRadius: '50%',
+                width: '22px',
+                height: '22px',
+                cursor: 'pointer',
+                color: 'var(--highlight-text)',
+                fontSize: '11px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+            },
+            listeners: [{
+                type: 'click',
+                listener: () => closeDropdown()
+            }]
+        });
+        header.appendChild(closeBtn);
+        dropdown.appendChild(header);
+
+        // Content container (scrollable)
+        const content = ztoolkit.UI.createElement(doc, 'div', {
+            styles: {
+                padding: '10px 14px',
                 display: 'flex',
                 flexDirection: 'column',
-                gap: '12px',
-                boxShadow: '0 8px 32px rgba(0,0,0,0.2)'
+                gap: '10px',
+                overflowY: 'auto',
+                flex: '1'
             }
         });
-
-        // Title
-        const title = ztoolkit.UI.createElement(doc, 'div', {
-            properties: { innerText: '⚙️ Manage Columns' },
-            styles: { fontSize: '16px', fontWeight: '600', marginBottom: '8px' }
-        });
-        dialog.appendChild(title);
 
         // --- Presets Section ---
         const presetSection = ztoolkit.UI.createElement(doc, 'div', {
             styles: {
                 display: 'flex',
-                gap: '8px',
-                marginBottom: '12px',
-                padding: '12px',
+                gap: '6px',
+                padding: '10px',
                 backgroundColor: 'var(--background-secondary)',
                 borderRadius: '6px',
                 border: '1px solid var(--border-primary)',
@@ -6018,10 +6297,15 @@ Task: ${columnPrompt}`;
         const presetSelect = ztoolkit.UI.createElement(doc, 'select', {
             styles: {
                 flex: '1',
-                padding: '6px',
-                borderRadius: '4px',
+                padding: '6px 10px',
+                borderRadius: '6px',
                 border: '1px solid var(--border-primary)',
-                minWidth: '150px'
+                minWidth: '120px',
+                fontSize: '12px',
+                backgroundColor: 'var(--background-secondary)',
+                color: 'var(--text-primary)',
+                cursor: 'pointer',
+                outline: 'none'
             }
         }) as HTMLSelectElement;
 
@@ -6051,15 +6335,22 @@ Task: ${columnPrompt}`;
         // Initial load
         loadPresetsList();
 
+        // Preset buttons container
+        const presetBtnsRow = ztoolkit.UI.createElement(doc, 'div', {
+            styles: { display: 'flex', gap: '4px' }
+        });
+
         // Load Button
         const loadPresetBtn = ztoolkit.UI.createElement(doc, 'button', {
-            properties: { innerText: '📥 Load' },
+            properties: { innerText: '📥' },
+            attributes: { title: 'Load preset' },
             styles: {
-                padding: '6px 12px',
+                padding: '6px 10px',
                 border: '1px solid var(--border-primary)',
-                borderRadius: '4px',
+                borderRadius: '6px',
                 cursor: 'pointer',
-                backgroundColor: 'var(--background-primary)'
+                backgroundColor: 'var(--background-primary)',
+                fontSize: '12px'
             },
             listeners: [{
                 type: 'click',
@@ -6077,7 +6368,7 @@ Task: ${columnPrompt}`;
                         if (confirmLoad) {
                             currentTableConfig.columns = [...preset.columns];
                             await tableStore.saveConfig(currentTableConfig);
-                            overlay.remove();
+                            closeDropdown();
                             if (currentContainer && currentItem) {
                                 this.renderInterface(currentContainer, currentItem);
                             }
@@ -6089,13 +6380,15 @@ Task: ${columnPrompt}`;
 
         // Save Button
         const savePresetBtn = ztoolkit.UI.createElement(doc, 'button', {
-            properties: { innerText: '💾 Save Current' },
+            properties: { innerText: '💾' },
+            attributes: { title: 'Save current as preset' },
             styles: {
-                padding: '6px 12px',
+                padding: '6px 10px',
                 border: '1px solid var(--border-primary)',
-                borderRadius: '4px',
+                borderRadius: '6px',
                 cursor: 'pointer',
-                backgroundColor: 'var(--background-primary)'
+                backgroundColor: 'var(--background-primary)',
+                fontSize: '12px'
             },
             listeners: [{
                 type: 'click',
@@ -6124,13 +6417,15 @@ Task: ${columnPrompt}`;
         // Delete Button
         const deletePresetBtn = ztoolkit.UI.createElement(doc, 'button', {
             properties: { innerText: '🗑' },
+            attributes: { title: 'Delete selected preset' },
             styles: {
-                padding: '6px 12px',
+                padding: '6px 10px',
                 border: '1px solid var(--border-primary)',
-                borderRadius: '4px',
+                borderRadius: '6px',
                 cursor: 'pointer',
                 color: '#c62828',
-                backgroundColor: 'var(--background-primary)'
+                backgroundColor: 'var(--background-primary)',
+                fontSize: '12px'
             },
             listeners: [{
                 type: 'click',
@@ -6154,13 +6449,13 @@ Task: ${columnPrompt}`;
             }]
         });
 
-        presetSection.appendChild(presetSelect);
-        presetSection.appendChild(loadPresetBtn);
-        presetSection.appendChild(savePresetBtn);
-        presetSection.appendChild(deletePresetBtn);
+        presetBtnsRow.appendChild(loadPresetBtn);
+        presetBtnsRow.appendChild(savePresetBtn);
+        presetBtnsRow.appendChild(deletePresetBtn);
 
-        dialog.appendChild(presetSection);
-        // -------------------------
+        presetSection.appendChild(presetSelect);
+        presetSection.appendChild(presetBtnsRow);
+        content.appendChild(presetSection);
 
         // Column list
         const columnList = ztoolkit.UI.createElement(doc, 'div', {
@@ -6169,8 +6464,11 @@ Task: ${columnPrompt}`;
                 display: 'flex',
                 flexDirection: 'column',
                 gap: '4px',
-                maxHeight: '300px',
-                overflowY: 'auto'
+                maxHeight: '200px',
+                overflowY: 'auto',
+                border: '1px solid var(--border-primary)',
+                borderRadius: '6px',
+                backgroundColor: 'var(--background-secondary)'
             }
         });
 
@@ -6182,10 +6480,9 @@ Task: ${columnPrompt}`;
                     display: 'flex',
                     alignItems: 'center',
                     gap: '8px',
-                    padding: '8px',
-                    borderRadius: '4px',
-                    backgroundColor: 'var(--background-secondary)',
-                    cursor: 'pointer'
+                    padding: '8px 10px',
+                    cursor: 'pointer',
+                    borderBottom: '1px solid var(--border-primary)'
                 }
             });
 
@@ -6203,7 +6500,7 @@ Task: ${columnPrompt}`;
 
             const label = ztoolkit.UI.createElement(doc, 'span', {
                 properties: { innerText: col.name },
-                styles: { flex: '1', fontSize: '13px' }
+                styles: { flex: '1', fontSize: '12px' }
             });
 
             row.appendChild(checkbox);
@@ -6217,10 +6514,10 @@ Task: ${columnPrompt}`;
                     styles: {
                         background: 'none',
                         border: 'none',
-                        fontSize: '14px',
+                        fontSize: '12px',
                         cursor: 'pointer',
                         color: '#c62828',
-                        padding: '2px 6px'
+                        padding: '2px 4px'
                     },
                     listeners: [{
                         type: 'click',
@@ -6242,53 +6539,55 @@ Task: ${columnPrompt}`;
             columnList.appendChild(row);
         });
 
-        dialog.appendChild(columnList);
+        content.appendChild(columnList);
 
         // Add new column section
         const addSection = ztoolkit.UI.createElement(doc, 'div', {
             styles: {
                 borderTop: '1px solid var(--border-primary)',
-                paddingTop: '12px',
-                marginTop: '8px'
+                paddingTop: '10px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '6px'
             }
         });
 
         const addLabel = ztoolkit.UI.createElement(doc, 'div', {
-            properties: { innerText: 'Add New Column:' },
-            styles: { fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px' }
+            properties: { innerText: '➕ Add New Column' },
+            styles: { fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)' }
         });
         addSection.appendChild(addLabel);
 
         const newColumnInput = ztoolkit.UI.createElement(doc, 'input', {
-            attributes: { type: 'text', placeholder: 'Column name (title)...' },
+            attributes: { type: 'text', placeholder: 'Column name...' },
             styles: {
                 width: '100%',
-                padding: '8px',
+                padding: '8px 10px',
                 border: '1px solid var(--border-primary)',
-                borderRadius: '4px',
-                fontSize: '13px',
-                marginBottom: '8px'
+                borderRadius: '6px',
+                fontSize: '12px',
+                backgroundColor: 'var(--background-secondary)',
+                color: 'var(--text-primary)',
+                outline: 'none',
+                boxSizing: 'border-box'
             }
         }) as HTMLInputElement;
         addSection.appendChild(newColumnInput);
 
-        const descLabel = ztoolkit.UI.createElement(doc, 'div', {
-            properties: { innerText: 'AI Prompt (what to extract):' },
-            styles: { fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }
-        });
-        addSection.appendChild(descLabel);
-
         const newColumnDesc = ztoolkit.UI.createElement(doc, 'textarea', {
-            attributes: { placeholder: 'e.g. "Extract the main findings and conclusions from this paper"' },
+            attributes: { placeholder: 'AI Prompt (e.g. "Extract the main findings...")' },
             styles: {
                 width: '100%',
-                padding: '8px',
+                padding: '8px 10px',
                 border: '1px solid var(--border-primary)',
-                borderRadius: '4px',
+                borderRadius: '6px',
                 fontSize: '12px',
-                marginBottom: '8px',
-                minHeight: '60px',
-                resize: 'vertical'
+                minHeight: '50px',
+                resize: 'vertical',
+                backgroundColor: 'var(--background-secondary)',
+                color: 'var(--text-primary)',
+                outline: 'none',
+                boxSizing: 'border-box'
             }
         }) as HTMLTextAreaElement;
         addSection.appendChild(newColumnDesc);
@@ -6303,6 +6602,7 @@ Task: ${columnPrompt}`;
                 color: 'var(--highlight-text)',
                 cursor: 'pointer',
                 fontWeight: '600',
+                fontSize: '12px',
                 width: '100%'
             },
             listeners: [{
@@ -6325,7 +6625,7 @@ Task: ${columnPrompt}`;
                         currentTableConfig.columns.push(newColumn);
                         const tableStore = getTableStore();
                         await tableStore.saveConfig(currentTableConfig);
-                        overlay.remove();
+                        closeDropdown();
                         if (currentContainer && currentItem) {
                             this.renderInterface(currentContainer, currentItem);
                         }
@@ -6334,53 +6634,250 @@ Task: ${columnPrompt}`;
             }]
         });
         addSection.appendChild(addColumnBtn);
-        dialog.appendChild(addSection);
+        content.appendChild(addSection);
 
-        // Button row
-        const buttonRow = ztoolkit.UI.createElement(doc, 'div', {
-            styles: { display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '8px' }
+        dropdown.appendChild(content);
+
+        // Insert dropdown after toolbar
+        toolbar.insertAdjacentElement('afterend', dropdown);
+
+        // Animate in
+        setTimeout(() => {
+            dropdown.style.opacity = "1";
+            dropdown.style.transform = "translateY(0)";
+        }, 10);
+
+        // Click outside to close
+        const handleClickOutside = (e: Event) => {
+            if (!dropdown.contains(e.target as Node) && !toolbar.contains(e.target as Node)) {
+                closeDropdown();
+                doc.removeEventListener('click', handleClickOutside);
+            }
+        };
+        // Delay to avoid immediate trigger
+        setTimeout(() => {
+            doc.addEventListener('click', handleClickOutside);
+        }, 100);
+    }
+
+    /**
+     * Show quick dropdown for adding a new column (triggered from + in table header)
+     */
+    private static showQuickAddColumnDropdown(doc: Document, anchorEl: HTMLElement): void {
+        // Toggle existing dropdown
+        const existing = doc.getElementById('quick-add-column-dropdown') as HTMLElement;
+        if (existing) {
+            existing.style.opacity = "0";
+            existing.style.transform = "translateY(-5px)";
+            setTimeout(() => existing.remove(), 150);
+            return;
+        }
+
+        // Helper to close dropdown with animation
+        const closeDropdown = () => {
+            dropdown.style.opacity = "0";
+            dropdown.style.transform = "translateY(-5px)";
+            setTimeout(() => dropdown.remove(), 150);
+        };
+
+        // Create dropdown panel
+        const dropdown = ztoolkit.UI.createElement(doc, 'div', {
+            properties: { id: 'quick-add-column-dropdown' },
+            styles: {
+                position: 'absolute',
+                top: '100%',
+                right: '0',
+                zIndex: '1000',
+                backgroundColor: 'var(--background-primary)',
+                borderRadius: '8px',
+                padding: '0',
+                boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
+                overflow: 'hidden',
+                border: '1px solid var(--border-primary)',
+                transition: 'all 0.15s ease-out',
+                opacity: '0',
+                transform: 'translateY(-5px)',
+                marginTop: '4px',
+                minWidth: '220px'
+            }
         });
 
-        const closeBtn = ztoolkit.UI.createElement(doc, 'button', {
-            properties: { innerText: 'Done' },
+        // Header
+        const header = ztoolkit.UI.createElement(doc, 'div', {
             styles: {
-                padding: '8px 16px',
-                border: '1px solid var(--border-primary)',
-                borderRadius: '6px',
-                backgroundColor: 'var(--background-secondary)',
-                cursor: 'pointer'
+                background: 'linear-gradient(135deg, var(--highlight-primary) 0%, color-mix(in srgb, var(--highlight-primary) 80%, purple) 100%)',
+                padding: '8px 12px',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center'
+            }
+        });
+
+        const headerTitle = ztoolkit.UI.createElement(doc, 'div', {
+            properties: { innerText: '➕ New Column' },
+            styles: {
+                fontSize: '12px',
+                fontWeight: '600',
+                color: 'var(--highlight-text)'
+            }
+        });
+        header.appendChild(headerTitle);
+
+        const closeBtn = ztoolkit.UI.createElement(doc, 'button', {
+            properties: { innerText: '✕' },
+            styles: {
+                background: 'rgba(0,0,0,0.1)',
+                border: 'none',
+                borderRadius: '50%',
+                width: '18px',
+                height: '18px',
+                cursor: 'pointer',
+                color: 'var(--highlight-text)',
+                fontSize: '10px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
             },
             listeners: [{
                 type: 'click',
-                listener: () => {
-                    overlay.remove();
-                    if (currentContainer && currentItem) {
-                        this.renderInterface(currentContainer, currentItem);
+                listener: () => closeDropdown()
+            }]
+        });
+        header.appendChild(closeBtn);
+        dropdown.appendChild(header);
+
+        // Content
+        const content = ztoolkit.UI.createElement(doc, 'div', {
+            styles: {
+                padding: '10px 12px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px'
+            }
+        });
+
+        // Name input
+        const nameInput = ztoolkit.UI.createElement(doc, 'input', {
+            attributes: { type: 'text', placeholder: 'Column name...' },
+            styles: {
+                width: '100%',
+                padding: '8px 10px',
+                border: '1px solid var(--border-primary)',
+                borderRadius: '6px',
+                fontSize: '12px',
+                backgroundColor: 'var(--background-secondary)',
+                color: 'var(--text-primary)',
+                outline: 'none',
+                boxSizing: 'border-box'
+            }
+        }) as HTMLInputElement;
+        content.appendChild(nameInput);
+
+        // AI Prompt input
+        const promptInput = ztoolkit.UI.createElement(doc, 'textarea', {
+            attributes: { placeholder: 'AI Prompt (e.g. "Extract findings...")' },
+            styles: {
+                width: '100%',
+                padding: '8px 10px',
+                border: '1px solid var(--border-primary)',
+                borderRadius: '6px',
+                fontSize: '11px',
+                minHeight: '50px',
+                resize: 'vertical',
+                backgroundColor: 'var(--background-secondary)',
+                color: 'var(--text-primary)',
+                outline: 'none',
+                boxSizing: 'border-box'
+            }
+        }) as HTMLTextAreaElement;
+        content.appendChild(promptInput);
+
+        // Add button
+        const addBtn = ztoolkit.UI.createElement(doc, 'button', {
+            properties: { innerText: 'Add Column' },
+            styles: {
+                padding: '8px 12px',
+                border: 'none',
+                borderRadius: '6px',
+                backgroundColor: 'var(--highlight-primary)',
+                color: 'var(--highlight-text)',
+                cursor: 'pointer',
+                fontWeight: '600',
+                fontSize: '12px',
+                width: '100%'
+            },
+            listeners: [{
+                type: 'click',
+                listener: async () => {
+                    const name = nameInput.value.trim();
+                    if (!name) {
+                        nameInput.style.borderColor = '#c62828';
+                        return;
+                    }
+
+                    if (currentTableConfig) {
+                        const aiPrompt = promptInput.value.trim();
+                        const newColumn: TableColumn = {
+                            id: `custom_${Date.now()}`,
+                            name,
+                            width: 150,
+                            minWidth: 80,
+                            visible: true,
+                            sortable: false,
+                            resizable: true,
+                            type: 'computed',
+                            aiPrompt: aiPrompt || `Extract information related to "${name}" from this paper.`
+                        };
+                        currentTableConfig.columns.push(newColumn);
+                        const tableStore = getTableStore();
+                        await tableStore.saveConfig(currentTableConfig);
+                        closeDropdown();
+                        if (currentContainer && currentItem) {
+                            this.renderInterface(currentContainer, currentItem);
+                        }
                     }
                 }
             }]
         });
-        buttonRow.appendChild(closeBtn);
-        dialog.appendChild(buttonRow);
+        content.appendChild(addBtn);
 
-        overlay.appendChild(dialog);
+        dropdown.appendChild(content);
 
-        // Close on overlay click
-        overlay.addEventListener('click', (e) => {
-            if (e.target === overlay) {
-                overlay.remove();
-                if (currentContainer && currentItem) {
-                    this.renderInterface(currentContainer, currentItem);
-                }
+        // Position dropdown to the left of the + button
+        anchorEl.style.position = 'relative';
+        dropdown.style.position = 'absolute';
+        dropdown.style.top = '0';
+        dropdown.style.right = '100%';  // Position to the left of the button
+        dropdown.style.marginRight = '4px';
+        anchorEl.appendChild(dropdown);
+
+        // Stop propagation on inputs to prevent click-outside from triggering
+        nameInput.addEventListener('click', (e) => e.stopPropagation());
+        nameInput.addEventListener('mousedown', (e) => e.stopPropagation());
+        promptInput.addEventListener('click', (e) => e.stopPropagation());
+        promptInput.addEventListener('mousedown', (e) => e.stopPropagation());
+
+        // Animate in
+        setTimeout(() => {
+            dropdown.style.opacity = "1";
+            dropdown.style.transform = "translateY(0)";
+        }, 10);
+
+        // Focus name input
+        setTimeout(() => nameInput.focus(), 50);
+
+        // Click outside to close
+        const handleClickOutside = (e: Event) => {
+            const target = e.target as Node;
+            // Check if click is inside dropdown or on the anchor button
+            if (!dropdown.contains(target) && !anchorEl.contains(target)) {
+                closeDropdown();
+                doc.removeEventListener('click', handleClickOutside);
             }
-        });
-
-        // Append to body
-        if (doc.body) {
-            doc.body.appendChild(overlay);
-        } else {
-            (doc.documentElement || doc).appendChild(overlay);
-        }
+        };
+        setTimeout(() => {
+            doc.addEventListener('click', handleClickOutside);
+        }, 150);
     }
 
     /**
@@ -6690,14 +7187,10 @@ ${tableRows}  </tbody>
 
         // Add Papers button - opens searchable paper picker
         const addBtn = ztoolkit.UI.createElement(doc, "button", {
-            properties: { innerText: "📄 Add Papers" },
+            properties: { innerText: "📄 Add Papers", className: "context-action-btn" },
             styles: {
-                padding: "4px 10px",
-                fontSize: "11px",
-                border: "1px dashed var(--button-dashed-border-blue)",
-                borderRadius: "4px",
+                border: "1px solid var(--button-dashed-border-blue)",
                 backgroundColor: "transparent",
-                cursor: "pointer",
                 color: "var(--button-dashed-text-blue)"
             },
             listeners: [{
@@ -6712,14 +7205,10 @@ ${tableRows}  </tbody>
 
         // Add by Tag button
         const addByTagBtn = ztoolkit.UI.createElement(doc, "button", {
-            properties: { innerText: "🏷️ Add by Tag" },
+            properties: { innerText: "🏷️ Add by Tag", className: "context-action-btn" },
             styles: {
-                padding: "4px 10px",
-                fontSize: "11px",
-                border: "1px dashed var(--button-dashed-border-orange)",
-                borderRadius: "4px",
+                border: "1px solid var(--button-dashed-border-orange)",
                 backgroundColor: "transparent",
-                cursor: "pointer",
                 color: "var(--button-dashed-text-orange)"
             },
             listeners: [{
@@ -6734,14 +7223,10 @@ ${tableRows}  </tbody>
 
         // Add Table button
         const addTableBtn = ztoolkit.UI.createElement(doc, "button", {
-            properties: { innerText: "📊 Add Table" },
+            properties: { innerText: "📊 Add Table", className: "context-action-btn" },
             styles: {
-                padding: "4px 10px",
-                fontSize: "11px",
-                border: "1px dashed var(--highlight-primary)",
-                borderRadius: "4px",
+                border: "1px solid var(--highlight-primary)",
                 backgroundColor: "transparent",
-                cursor: "pointer",
                 color: "var(--highlight-primary)"
             },
             listeners: [{
@@ -6780,14 +7265,10 @@ ${tableRows}  </tbody>
         // Clear all button (allow clearing even single items)
         if (stateManager.hasSelections()) {
             const clearAllBtn = ztoolkit.UI.createElement(doc, "button", {
-                properties: { innerText: "✕ Clear All" },
+                properties: { innerText: "✕ Clear All", className: "context-action-btn" },
                 styles: {
-                    padding: "4px 8px",
-                    fontSize: "10px",
                     border: "none",
-                    borderRadius: "4px",
                     backgroundColor: "var(--button-clear-background)",
-                    cursor: "pointer",
                     color: "var(--button-clear-text)"
                 },
                 listeners: [{
@@ -7278,9 +7759,9 @@ ${tableRows}  </tbody>
                     styles: {
                         fontSize: "12px",
                         fontWeight: "500",
-                        whiteSpace: "nowrap",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
+                        whiteSpace: "normal",
+                        wordBreak: "break-word",
+                        lineHeight: "1.3",
                         color: "var(--text-primary)"
                     }
                 });
@@ -7762,10 +8243,10 @@ ${tableRows}  </tbody>
                         : "1px solid var(--border-primary)",
                     borderRadius: "4px 0 0 4px",
                     backgroundColor: options.webSearchEnabled
-                        ? "#fff3e0"
+                        ? "#6d4d00"
                         : "var(--background-secondary)",
                     color: options.webSearchEnabled
-                        ? "#e65100"
+                        ? "#ffc94d"
                         : "var(--text-primary)",
                     fontWeight: options.webSearchEnabled ? "bold" : "normal",
                     cursor: "pointer",
@@ -7781,10 +8262,10 @@ ${tableRows}  </tbody>
                         // Update button appearance
                         (webSearchBtn as HTMLElement).innerText = newValue ? "🌐 Web ON" : "🌐 Web";
                         (webSearchBtn as HTMLElement).style.backgroundColor = newValue
-                            ? "#fff3e0"
+                            ? "#6d4d00"
                             : "var(--background-secondary)";
                         (webSearchBtn as HTMLElement).style.color = newValue
-                            ? "#e65100"
+                            ? "#ffc94d"
                             : "var(--text-primary)";
                         (webSearchBtn as HTMLElement).style.borderColor = newValue
                             ? "#e65100"
@@ -7963,26 +8444,21 @@ ${tableRows}  </tbody>
         const currentConcurrent = (Zotero.Prefs.get(`${prefPrefix}.firecrawlMaxConcurrent`) as number) || 3;
 
         const popover = ztoolkit.UI.createElement(doc, "div", {
-            properties: { id: "firecrawl-settings-popover" },
-            styles: {
-                position: "absolute",
-                top: "100%",
-                left: "0",
-                marginTop: "4px",
-                backgroundColor: "var(--background-primary)",
-                border: "1px solid var(--border-primary)",
-                borderRadius: "8px",
-                padding: "12px",
-                boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
-                zIndex: "1000",
-                minWidth: "200px"
+            properties: {
+                id: "firecrawl-settings-popover",
+                className: "firecrawl-popover"
             }
+            // Styles handled by CSS class
         });
 
         // Title
         const title = ztoolkit.UI.createElement(doc, "div", {
             properties: { innerText: "🔥 Firecrawl Settings" },
-            styles: { fontWeight: "bold", marginBottom: "12px", fontSize: "12px" }
+            styles: {
+                fontWeight: "bold",
+                marginBottom: "12px",
+                fontSize: "12px"
+            }
         });
         popover.appendChild(title);
 
@@ -7995,13 +8471,11 @@ ${tableRows}  </tbody>
             styles: { fontSize: "11px", flex: "1" }
         });
         const limitInput = ztoolkit.UI.createElement(doc, "input", {
-            attributes: { type: "number", min: "1", max: "10", value: String(currentLimit) },
+            attributes: { type: "number", min: "1", max: "10", value: String(currentLimit), class: "firecrawl-input" },
             styles: {
                 width: "50px",
                 padding: "4px",
                 fontSize: "11px",
-                border: "1px solid var(--border-primary)",
-                borderRadius: "4px",
                 textAlign: "center"
             },
             listeners: [{
@@ -8028,13 +8502,11 @@ ${tableRows}  </tbody>
             styles: { fontSize: "11px", flex: "1" }
         });
         const concurrentInput = ztoolkit.UI.createElement(doc, "input", {
-            attributes: { type: "number", min: "1", max: "10", value: String(currentConcurrent) },
+            attributes: { type: "number", min: "1", max: "10", value: String(currentConcurrent), class: "firecrawl-input" },
             styles: {
                 width: "50px",
                 padding: "4px",
                 fontSize: "11px",
-                border: "1px solid var(--border-primary)",
-                borderRadius: "4px",
                 textAlign: "center"
             },
             listeners: [{
@@ -8085,13 +8557,14 @@ ${tableRows}  </tbody>
                 position: "absolute",
                 top: "80px",
                 left: "10px",
-                backgroundColor: "#fff",
-                border: "1px solid #ddd",
+                backgroundColor: "var(--background-primary)",
+                border: "1px solid var(--border-primary)",
                 borderRadius: "8px",
                 padding: "12px",
                 boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
                 zIndex: "1000",
-                minWidth: "200px"
+                minWidth: "200px",
+                color: "var(--text-primary)"
             }
         });
 
@@ -8122,9 +8595,10 @@ ${tableRows}  </tbody>
                 marginTop: "12px",
                 padding: "6px 12px",
                 fontSize: "11px",
-                border: "1px solid #ddd",
+                border: "1px solid var(--border-primary)",
                 borderRadius: "4px",
-                backgroundColor: "#f5f5f5",
+                backgroundColor: "var(--background-secondary)",
+                color: "var(--text-primary)",
                 cursor: "pointer",
                 width: "100%"
             },
