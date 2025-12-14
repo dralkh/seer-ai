@@ -2599,38 +2599,7 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
         countText.innerHTML = `📊 Found <strong>${totalSearchResults.toLocaleString()}</strong> papers • Showing ${currentSearchResults.length}`;
         countHeader.appendChild(countText);
 
-        // Button group container
-        const btnGroup = ztoolkit.UI.createElement(doc, "div", {
-            styles: {
-                display: "flex",
-                gap: "6px",
-                alignItems: "center"
-            }
-        });
-
-        // Add Column button
-        const addColumnBtn = ztoolkit.UI.createElement(doc, "button", {
-            properties: { innerText: "➕ Column" },
-            styles: {
-                padding: "4px 10px",
-                fontSize: "11px",
-                border: "1px solid var(--border-primary)",
-                borderRadius: "4px",
-                backgroundColor: "var(--background-primary)",
-                color: "var(--text-primary)",
-                cursor: "pointer"
-            },
-            listeners: [{
-                type: "click",
-                listener: (e: Event) => {
-                    e.stopPropagation();
-                    this.showSearchColumnDropdown(doc, addColumnBtn as HTMLButtonElement, container, item);
-                }
-            }]
-        });
-        btnGroup.appendChild(addColumnBtn);
-
-        // Export BibTeX button
+        // Export BibTeX button (Keep only this button in header)
         const exportBtn = ztoolkit.UI.createElement(doc, "button", {
             properties: { innerText: "📥 Export BibTeX" },
             styles: {
@@ -2667,67 +2636,12 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
                 }
             }]
         });
-        btnGroup.appendChild(exportBtn);
-
-        countHeader.appendChild(btnGroup);
-
+        countHeader.appendChild(exportBtn);
         container.appendChild(countHeader);
 
-        // Check if we have columns - if so, use table layout; otherwise use card layout
-        if (searchColumnConfig.columns.length > 0) {
-            // === TABLE LAYOUT WITH SIDE + BUTTON ===
-            const tableWrapper = this.createSearchResultsTable(doc, container, item);
-            container.appendChild(tableWrapper);
-        } else {
-            // === CARD LAYOUT (no columns yet) ===
-            // Show prompt to add first column
-
-
-            // Render result cards (original behavior)
-            currentSearchResults.forEach(paper => {
-                const card = this.createSearchResultCard(doc, paper, item);
-                container.appendChild(card);
-            });
-        }
-
-        // Note: PDF discovery is now triggered automatically in createSearchResultCard
-
-        // "Show More" button
-        const showMoreBtn = ztoolkit.UI.createElement(doc, "button", {
-            properties: { innerText: "📥 Show More", id: "show-more-btn" },
-            styles: {
-                display: "block",
-                width: "calc(100% - 24px)",
-                margin: "12px",
-                padding: "12px",
-                backgroundColor: "var(--background-secondary)",
-                color: "var(--text-primary)",
-                border: "1px solid var(--border-primary)",
-                borderRadius: "6px",
-                fontSize: "13px",
-                cursor: "pointer"
-            },
-            listeners: [{
-                type: "click",
-                listener: async () => {
-                    // Replace button with loading indicator
-                    const loadingDiv = ztoolkit.UI.createElement(doc, "div", {
-                        properties: { id: "show-more-loading" },
-                        styles: {
-                            textAlign: "center",
-                            padding: "16px",
-                            color: "var(--text-secondary)",
-                            fontSize: "12px"
-                        }
-                    });
-                    loadingDiv.innerHTML = "⏳ Loading more papers...";
-                    showMoreBtn.replaceWith(loadingDiv);
-
-                    await this.performSearch(doc);
-                }
-            }]
-        });
-        container.appendChild(showMoreBtn);
+        // Render Unified Search Results (Table Layout with Card First Column)
+        const wrapper = this.renderUnifiedSearchResults(doc, container, item);
+        container.appendChild(wrapper);
     }
 
     /**
@@ -2790,7 +2704,7 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
     }
 
     /**
-     * Append new search result cards without clearing existing content
+     * Append new search result cards to the unified table
      */
     private static appendSearchCards(doc: Document, container: HTMLElement, newPapers: SemanticScholarPaper[], item: Zotero.Item): void {
         // Find and remove the loading indicator if present
@@ -2799,57 +2713,61 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
             loadingIndicator.remove();
         }
 
-        // Find and remove the existing Show More button (we'll add a new one at the end)
-        const existingShowMore = container.querySelector("#show-more-btn");
-        if (existingShowMore) {
-            existingShowMore.remove();
+        // Find the table body in the container
+        const tbody = container.querySelector("tbody");
+        if (tbody) {
+            newPapers.forEach(paper => {
+                const tr = this.createUnifiedResultRow(doc, paper, item, searchColumnConfig.columns);
+                tbody.appendChild(tr);
+            });
         }
 
-        // Update the count header
-        const countHeader = container.querySelector("div:first-child");
-        if (countHeader && (countHeader.textContent || "").includes("Found")) {
-            countHeader.innerHTML = `📊 Found <strong>${totalSearchResults.toLocaleString()}</strong> papers • Showing ${currentSearchResults.length}`;
+        // Re-append the "Show More" button at the bottom of the scrollable area
+        // We look for the scrollable table container
+        const tableContainer = container.querySelector("div[style*='overflow: auto']");
+        if (tableContainer) {
+            // Create new Show More button
+            const showMoreBtn = ztoolkit.UI.createElement(doc, "button", {
+                properties: { innerText: "📥 Show More", id: "show-more-btn" },
+                styles: {
+                    display: "block",
+                    width: "calc(100% - 24px)",
+                    margin: "12px",
+                    padding: "12px",
+                    backgroundColor: "var(--background-secondary)",
+                    color: "var(--text-primary)",
+                    border: "1px solid var(--border-primary)",
+                    borderRadius: "6px",
+                    fontSize: "13px",
+                    cursor: "pointer"
+                },
+                listeners: [{
+                    type: "click",
+                    listener: async () => {
+                        // Replace button with loading indicator
+                        const loadingDiv = ztoolkit.UI.createElement(doc, "div", {
+                            properties: { id: "show-more-loading" },
+                            styles: {
+                                textAlign: "center",
+                                padding: "16px",
+                                color: "var(--text-secondary)",
+                                fontSize: "12px"
+                            }
+                        });
+                        loadingDiv.innerHTML = "⏳ Loading more papers...";
+                        showMoreBtn.replaceWith(loadingDiv);
+
+                        await this.performSearch(doc);
+                    }
+                }]
+            });
+            tableContainer.appendChild(showMoreBtn);
         }
-
-        // Append new paper cards
-        newPapers.forEach(paper => {
-            const card = this.createSearchResultCard(doc, paper, item);
-            container.appendChild(card);
-        });
-
-        // Note: PDF discovery runs automatically in createSearchResultCard for each new paper
-
-        // Add Show More button at the end
-        const showMoreBtn = ztoolkit.UI.createElement(doc, "button", {
-            properties: { innerText: "📥 Show More", id: "show-more-btn" },
-            styles: {
-                display: "block",
-                width: "calc(100% - 24px)",
-                margin: "12px",
-                padding: "12px",
-                backgroundColor: "var(--background-secondary)",
-                color: "var(--text-primary)",
-                border: "1px solid var(--border-primary)",
-                borderRadius: "6px",
-                fontSize: "13px",
-                cursor: "pointer"
-            },
-            listeners: [{
-                type: "click",
-                listener: async () => {
-                    showMoreBtn.textContent = "Loading...";
-                    showMoreBtn.setAttribute("disabled", "true");
-                    await this.performSearch(doc);
-                }
-            }]
-        });
-        container.appendChild(showMoreBtn);
     }
-
     /**
      * Create a paper result card
      */
-    private static createSearchResultCard(doc: Document, paper: SemanticScholarPaper, item: Zotero.Item): HTMLElement {
+    private static createSearchResultCard(doc: Document, paper: SemanticScholarPaper, item: Zotero.Item, isTableCell: boolean = false): HTMLElement {
         const card = ztoolkit.UI.createElement(doc, "div", {
             properties: { className: "search-result-card" },
             styles: {
@@ -2861,7 +2779,12 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
 
         // Header: Title + PDF indicator
         const header = ztoolkit.UI.createElement(doc, "div", {
-            styles: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "6px" }
+            styles: {
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "flex-start",
+                marginBottom: "6px"
+            }
         });
 
         const title = ztoolkit.UI.createElement(doc, "div", {
@@ -2871,7 +2794,9 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
                 fontWeight: "600",
                 color: "var(--text-primary)",
                 flex: "1",
-                lineHeight: "1.3"
+                lineHeight: "1.3",
+                wordBreak: "break-word", // FORCE WORD BREAK
+                minWidth: "0" // ALLOW SHRINKING
             }
         });
         header.appendChild(title);
@@ -2941,7 +2866,9 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
                     fontSize: "11px",
                     color: "var(--text-secondary)",
                     lineHeight: "1.4",
-                    marginBottom: "8px"
+                    marginBottom: "8px",
+                    wordBreak: "break-word",
+                    minWidth: "0"
                 }
             });
             card.appendChild(abstractEl);
@@ -2949,7 +2876,12 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
 
         // Action buttons
         const actions = ztoolkit.UI.createElement(doc, "div", {
-            styles: { display: "flex", gap: "8px", marginTop: "8px" }
+            styles: {
+                display: "flex",
+                gap: "8px",
+                marginTop: "8px",
+                flexWrap: "wrap" // Allow buttons to wrap
+            }
         });
 
         const actionBtnStyle = {
@@ -3325,23 +3257,6 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
         actions.appendChild(similarBtn);
 
         card.appendChild(actions);
-
-        // Analysis columns section (if any configured)
-        if (searchColumnConfig.columns.length > 0) {
-            const resultsArea = doc.getElementById("semantic-scholar-results");
-            if (resultsArea) {
-                const columnsSection = this.createSearchCardColumns(doc, paper, resultsArea as HTMLElement, item);
-                card.appendChild(columnsSection);
-            }
-        }
-
-        // Hover effect
-        card.addEventListener("mouseenter", () => {
-            card.style.backgroundColor = "var(--background-secondary)";
-        });
-        card.addEventListener("mouseleave", () => {
-            card.style.backgroundColor = "transparent";
-        });
 
         return card;
     }
@@ -4014,7 +3929,8 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
                 borderRadius: "4px",
                 fontSize: "12px",
                 backgroundColor: "var(--background-primary)",
-                color: "var(--text-primary)"
+                color: "var(--text-primary)",
+                outline: "none"
             },
             listeners: [{
                 type: "input",
@@ -8049,9 +7965,128 @@ Task: ${columnPrompt}`;
     // ==================== Search Results Table ====================
 
     /**
-     * Create a table-based layout for search results with columns and side + button
+     * Helper to create a unified result row (Card + AI Columns)
      */
-    private static createSearchResultsTable(
+    private static createUnifiedResultRow(
+        doc: Document,
+        paper: SemanticScholarPaper,
+        item: Zotero.Item,
+        columns: SearchColumnConfig["columns"]
+    ): HTMLTableRowElement {
+        const tr = ztoolkit.UI.createElement(doc, "tr", {
+            styles: {
+                borderBottom: "1px solid var(--border-primary)"
+            }
+        }) as HTMLTableRowElement;
+
+        // Hover effect
+        tr.addEventListener("mouseenter", () => { tr.style.backgroundColor = "var(--background-secondary)"; });
+        tr.addEventListener("mouseleave", () => { tr.style.backgroundColor = ""; });
+
+        // === CARD CELL ===
+        const cardCell = ztoolkit.UI.createElement(doc, "td", {
+            styles: {
+                padding: "0",
+                width: "100%", // Take mostly all space if no columns
+                verticalAlign: "top"
+            }
+        });
+
+        // Create the card with Table Cell mode (optional logic could reside in createSearchResultCard,
+        // but here we just manually unset border since we returned HTMLElement)
+        const card = this.createSearchResultCard(doc, paper, item, true);
+        card.style.borderBottom = "none"; // Ensure no double border
+        card.style.width = "100%";
+        card.style.boxSizing = "border-box"; // Ensure padding doesn't overflow
+        cardCell.appendChild(card);
+        tr.appendChild(cardCell);
+
+        // === AI COLUMN CELLS ===
+        columns.forEach(col => {
+            const td = ztoolkit.UI.createElement(doc, "td", {
+                styles: {
+                    padding: "12px",
+                    verticalAlign: "top",
+                    borderLeft: "1px solid var(--border-primary)",
+                    minWidth: "150px",
+                    maxWidth: "250px",
+                    backgroundColor: "rgba(0,0,0,0.01)" // Slight tint for AI columns
+                }
+            });
+
+            const cachedValue = searchColumnConfig.generatedData[paper.paperId]?.[col.id];
+
+            if (cachedValue) {
+                const contentDiv = ztoolkit.UI.createElement(doc, "div", {
+                    styles: {
+                        whiteSpace: "pre-wrap",
+                        lineHeight: "1.4",
+                        fontSize: "11px",
+                        color: "var(--text-secondary)"
+                    }
+                });
+                contentDiv.innerText = cachedValue;
+                td.appendChild(contentDiv);
+            } else {
+                // Generate button
+                const genBtn = ztoolkit.UI.createElement(doc, "button", {
+                    properties: { innerText: "✨ Generate" },
+                    styles: {
+                        padding: "6px 12px",
+                        fontSize: "11px",
+                        border: "1px solid var(--highlight-primary)",
+                        borderRadius: "4px",
+                        backgroundColor: "var(--background-primary)",
+                        color: "var(--highlight-primary)",
+                        cursor: "pointer",
+                        width: "100%"
+                    },
+                    listeners: [{
+                        type: "click",
+                        listener: async (e: Event) => {
+                            e.stopPropagation();
+                            const btn = e.target as HTMLButtonElement;
+                            const originalText = btn.innerText;
+                            btn.innerText = "⏳ Thinking...";
+                            btn.disabled = true;
+
+                            try {
+                                const result = await this.analyzeSearchPaperColumn(paper, col);
+                                td.innerHTML = "";
+                                const contentDiv = ztoolkit.UI.createElement(doc, "div", {
+                                    styles: {
+                                        whiteSpace: "pre-wrap",
+                                        lineHeight: "1.4",
+                                        fontSize: "11px",
+                                        color: "var(--text-primary)"
+                                    }
+                                });
+                                contentDiv.innerText = result;
+                                td.appendChild(contentDiv);
+                            } catch (err) {
+                                btn.innerText = "❌ Error";
+                                btn.title = String(err);
+                                setTimeout(() => {
+                                    btn.innerText = originalText;
+                                    btn.disabled = false;
+                                }, 3000);
+                            }
+                        }
+                    }]
+                });
+                td.appendChild(genBtn);
+            }
+
+            tr.appendChild(td);
+        });
+
+        return tr;
+    }
+
+    /**
+     * Render the unified search results table (Card + Optional Columns)
+     */
+    private static renderUnifiedSearchResults(
         doc: Document,
         resultsContainer: HTMLElement,
         item: Zotero.Item
@@ -8081,302 +8116,293 @@ Task: ${columnPrompt}`;
             styles: {
                 width: "100%",
                 borderCollapse: "collapse",
-                fontSize: "11px"
+                fontSize: "11px",
+                tableLayout: "fixed" // CRITICAL FOR RESIZING
             }
         });
 
         // === TABLE HEADER ===
-        const thead = ztoolkit.UI.createElement(doc, "thead", {});
-        const headerRow = ztoolkit.UI.createElement(doc, "tr", {
-            styles: {
-                backgroundColor: "var(--background-tertiary)",
-                position: "sticky",
-                top: "0",
-                zIndex: "10"
-            }
-        });
-
-        // Paper column header
-        const paperHeader = ztoolkit.UI.createElement(doc, "th", {
-            properties: { innerText: "📄 Paper" },
-            styles: {
-                padding: "8px 10px",
-                textAlign: "left",
-                fontWeight: "600",
-                borderBottom: "2px solid var(--border-primary)",
-                minWidth: "200px",
-                color: "var(--text-primary)"
-            }
-        });
-        headerRow.appendChild(paperHeader);
-
-        // AI column headers
-        searchColumnConfig.columns.forEach(col => {
-            const th = ztoolkit.UI.createElement(doc, "th", {
+        // Only show header if we have AI columns
+        if (searchColumnConfig.columns.length > 0) {
+            const thead = ztoolkit.UI.createElement(doc, "thead", {});
+            const headerRow = ztoolkit.UI.createElement(doc, "tr", {
                 styles: {
-                    padding: "8px 10px",
+                    backgroundColor: "var(--background-tertiary)",
+                    position: "sticky",
+                    top: "0",
+                    zIndex: "10"
+                }
+            });
+
+            // Paper column header (Main Card Column)
+
+            // Paper column header (Main Card Column)
+            const paperHeader = ztoolkit.UI.createElement(doc, "th", {
+                properties: { innerText: "Paper Details" },
+                styles: {
+                    padding: "8px 12px",
                     textAlign: "left",
                     fontWeight: "600",
                     borderBottom: "2px solid var(--border-primary)",
-                    borderLeft: "1px solid var(--border-primary)",
-                    minWidth: "120px",
-                    maxWidth: "200px",
-                    color: "var(--text-primary)"
-                }
-            });
-
-            // Column name with remove button
-            const headerContent = ztoolkit.UI.createElement(doc, "div", {
-                styles: {
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    gap: "4px"
-                }
-            });
-
-            const colName = ztoolkit.UI.createElement(doc, "span", {
-                properties: { innerText: col.name, title: col.aiPrompt }
-            });
-            headerContent.appendChild(colName);
-
-            // Remove column button
-            const removeBtn = ztoolkit.UI.createElement(doc, "span", {
-                properties: { innerText: "✕" },
-                styles: {
-                    cursor: "pointer",
-                    opacity: "0.6",
-                    fontSize: "10px",
-                    padding: "2px 4px",
-                    borderRadius: "3px"
-                },
-                listeners: [{
-                    type: "click",
-                    listener: async (e: Event) => {
-                        e.stopPropagation();
-                        searchColumnConfig.columns = searchColumnConfig.columns.filter(c => c.id !== col.id);
-                        for (const paperId in searchColumnConfig.generatedData) {
-                            delete searchColumnConfig.generatedData[paperId][col.id];
-                        }
-                        await saveSearchColumnConfig();
-                        this.renderSearchResults(doc, resultsContainer, item);
-                    }
-                }]
-            });
-            removeBtn.addEventListener("mouseenter", () => { removeBtn.style.opacity = "1"; removeBtn.style.backgroundColor = "rgba(200,0,0,0.1)"; });
-            removeBtn.addEventListener("mouseleave", () => { removeBtn.style.opacity = "0.6"; removeBtn.style.backgroundColor = ""; });
-            headerContent.appendChild(removeBtn);
-
-            th.appendChild(headerContent);
-            headerRow.appendChild(th);
-        });
-
-        thead.appendChild(headerRow);
-        table.appendChild(thead);
-
-        // === TABLE BODY ===
-        const tbody = ztoolkit.UI.createElement(doc, "tbody", {});
-
-        currentSearchResults.forEach(paper => {
-            const tr = ztoolkit.UI.createElement(doc, "tr", {
-                styles: {
-                    borderBottom: "1px solid var(--border-primary)"
-                }
-            });
-
-            // Hover effect
-            tr.addEventListener("mouseenter", () => { tr.style.backgroundColor = "var(--background-secondary)"; });
-            tr.addEventListener("mouseleave", () => { tr.style.backgroundColor = ""; });
-
-            // === PAPER CELL (compact info) ===
-            const paperCell = ztoolkit.UI.createElement(doc, "td", {
-                styles: {
-                    padding: "8px 10px",
-                    verticalAlign: "top"
-                }
-            });
-
-            // Title (clickable to open in browser)
-            const titleEl = ztoolkit.UI.createElement(doc, "div", {
-                properties: { innerText: paper.title },
-                styles: {
-                    fontWeight: "600",
-                    fontSize: "12px",
+                    width: "300px", // Default start width
                     color: "var(--text-primary)",
-                    marginBottom: "4px",
-                    cursor: "pointer",
-                    lineHeight: "1.3"
-                },
-                listeners: [{
-                    type: "click",
-                    listener: () => Zotero.launchURL(paper.url)
-                }]
-            });
-            titleEl.addEventListener("mouseenter", () => { titleEl.style.textDecoration = "underline"; });
-            titleEl.addEventListener("mouseleave", () => { titleEl.style.textDecoration = ""; });
-            paperCell.appendChild(titleEl);
-
-            // Authors + Year + Citations (compact line)
-            const authors = paper.authors?.slice(0, 2).map(a => a.name).join(", ") || "";
-            const authorsMore = paper.authors && paper.authors.length > 2 ? ` +${paper.authors.length - 2}` : "";
-            const metaLine = `${authors}${authorsMore} • ${paper.year || "?"} • ${paper.citationCount} cites`;
-            const metaEl = ztoolkit.UI.createElement(doc, "div", {
-                properties: { innerText: metaLine },
-                styles: {
-                    fontSize: "10px",
-                    color: "var(--text-secondary)",
-                    marginBottom: "4px"
+                    position: "relative",
+                    userSelect: "none",
+                    boxSizing: "border-box",
+                    overflow: "hidden",
+                    whiteSpace: "nowrap",
+                    textOverflow: "ellipsis"
                 }
             });
-            paperCell.appendChild(metaEl);
 
-            // Action buttons (compact)
-            const actionRow = ztoolkit.UI.createElement(doc, "div", {
-                styles: { display: "flex", gap: "4px" }
+            // === RESIZER HANDLE FOR PAPER COLUMN ===
+            const paperResizer = ztoolkit.UI.createElement(doc, "div", {
+                styles: {
+                    position: "absolute",
+                    right: "0",
+                    top: "0",
+                    bottom: "0",
+                    width: "5px",
+                    cursor: "col-resize",
+                    backgroundColor: "transparent",
+                    zIndex: "11"
+                }
             });
 
-            const btnStyle = {
-                padding: "2px 6px",
-                fontSize: "10px",
-                border: "1px solid var(--border-primary)",
-                borderRadius: "3px",
-                backgroundColor: "var(--background-primary)",
-                color: "var(--text-primary)",
-                cursor: "pointer"
-            };
+            paperResizer.addEventListener("mouseenter", () => { paperResizer.style.backgroundColor = "var(--highlight-primary)"; });
+            paperResizer.addEventListener("mouseleave", () => { paperResizer.style.backgroundColor = "transparent"; });
 
-            // Add to Zotero
-            const addBtn = ztoolkit.UI.createElement(doc, "button", {
-                properties: { innerText: "➕ Zotero" },
-                styles: { ...btnStyle, backgroundColor: "var(--highlight-primary)", color: "var(--highlight-text)", border: "none" },
-                listeners: [{
-                    type: "click",
-                    listener: async (e: Event) => {
-                        e.stopPropagation();
-                        await this.addPaperToZotero(paper);
-                        (e.target as HTMLButtonElement).textContent = "✓";
-                        (e.target as HTMLButtonElement).disabled = true;
+            paperResizer.addEventListener("mousedown", (e: MouseEvent) => {
+                e.stopPropagation();
+                e.preventDefault(); // Prevent text selection
+                // Use rect for stable calculation
+                const startLeft = paperHeader.getBoundingClientRect().left;
+
+                // Set global cursor to prevent fluttering
+                if (doc.body) doc.body.style.cursor = "col-resize";
+
+                const onMouseMove = (moveEvent: MouseEvent) => {
+                    // Calculate exact width based on current mouse position relative to left edge
+                    const newWidth = moveEvent.clientX - startLeft;
+                    if (newWidth > 60) { // Ultra-low min width
+                        paperHeader.style.width = `${newWidth}px`;
+                        paperHeader.style.minWidth = `${newWidth}px`;
                     }
-                }]
+                };
+
+                const onMouseUp = () => {
+                    doc.removeEventListener("mousemove", onMouseMove);
+                    doc.removeEventListener("mouseup", onMouseUp);
+                    if (doc.body) doc.body.style.cursor = ""; // Reset cursor
+                };
+
+                doc.addEventListener("mousemove", onMouseMove);
+                doc.addEventListener("mouseup", onMouseUp);
             });
-            actionRow.appendChild(addBtn);
+            paperHeader.appendChild(paperResizer);
+            headerRow.appendChild(paperHeader);
 
-            // Open link
-            const openBtn = ztoolkit.UI.createElement(doc, "button", {
-                properties: { innerText: "🔗" },
-                styles: btnStyle,
-                listeners: [{
-                    type: "click",
-                    listener: (e: Event) => {
-                        e.stopPropagation();
-                        Zotero.launchURL(paper.url);
-                    }
-                }]
-            });
-            actionRow.appendChild(openBtn);
-
-            paperCell.appendChild(actionRow);
-            tr.appendChild(paperCell);
-
-            // === AI COLUMN CELLS ===
+            // AI column headers
             searchColumnConfig.columns.forEach(col => {
-                const td = ztoolkit.UI.createElement(doc, "td", {
+                const th = ztoolkit.UI.createElement(doc, "th", {
                     styles: {
                         padding: "8px 10px",
-                        verticalAlign: "top",
+                        textAlign: "left",
+                        fontWeight: "600",
+                        borderBottom: "2px solid var(--border-primary)",
                         borderLeft: "1px solid var(--border-primary)",
-                        maxWidth: "200px"
+                        minWidth: `${col.width || 200}px`, // Use saved width
+                        width: `${col.width || 200}px`,
+                        maxWidth: "600px",
+                        color: "var(--text-primary)",
+                        position: "relative", // For absolute positioning of resizer
+                        userSelect: "none"
                     }
                 });
 
-                const cachedValue = searchColumnConfig.generatedData[paper.paperId]?.[col.id];
+                // Column name with remove button
+                const headerContent = ztoolkit.UI.createElement(doc, "div", {
+                    styles: {
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        gap: "4px"
+                    }
+                });
 
-                if (cachedValue) {
-                    td.textContent = cachedValue;
-                    td.style.color = "var(--text-secondary)";
-                    td.style.lineHeight = "1.4";
-                } else {
-                    // Generate button
-                    const genBtn = ztoolkit.UI.createElement(doc, "button", {
-                        properties: { innerText: "🔄 Generate" },
-                        styles: {
-                            padding: "4px 8px",
-                            fontSize: "10px",
-                            border: "1px solid var(--border-primary)",
-                            borderRadius: "4px",
-                            backgroundColor: "var(--background-primary)",
-                            color: "var(--text-primary)",
-                            cursor: "pointer"
-                        },
-                        listeners: [{
-                            type: "click",
-                            listener: async (e: Event) => {
-                                e.stopPropagation();
-                                const btn = e.target as HTMLButtonElement;
-                                btn.textContent = "⏳...";
-                                btn.disabled = true;
+                const colName = ztoolkit.UI.createElement(doc, "span", {
+                    properties: { innerText: col.name, title: col.aiPrompt }
+                });
+                headerContent.appendChild(colName);
 
-                                try {
-                                    const result = await this.analyzeSearchPaperColumn(paper, col);
-                                    td.textContent = result;
-                                    td.style.color = "var(--text-secondary)";
-                                    td.style.lineHeight = "1.4";
-                                } catch (err) {
-                                    td.textContent = `❌ ${err}`;
-                                    td.style.color = "#c62828";
-                                }
+                // Remove column button
+                const removeBtn = ztoolkit.UI.createElement(doc, "span", {
+                    properties: { innerText: "✕" },
+                    styles: {
+                        cursor: "pointer",
+                        opacity: "0.6",
+                        fontSize: "10px",
+                        padding: "2px 4px",
+                        borderRadius: "3px"
+                    },
+                    listeners: [{
+                        type: "click",
+                        listener: async (e: Event) => {
+                            e.stopPropagation();
+                            searchColumnConfig.columns = searchColumnConfig.columns.filter(c => c.id !== col.id);
+                            // Optional: clear data for this column
+                            for (const paperId in searchColumnConfig.generatedData) {
+                                delete searchColumnConfig.generatedData[paperId][col.id];
                             }
-                        }]
-                    });
-                    td.appendChild(genBtn);
-                }
+                            await saveSearchColumnConfig();
+                            this.renderSearchResults(doc, resultsContainer, item);
+                        }
+                    }]
+                });
+                removeBtn.addEventListener("mouseenter", () => { removeBtn.style.opacity = "1"; removeBtn.style.backgroundColor = "rgba(200,0,0,0.1)"; });
+                removeBtn.addEventListener("mouseleave", () => { removeBtn.style.opacity = "0.6"; removeBtn.style.backgroundColor = ""; });
+                headerContent.appendChild(removeBtn);
 
-                tr.appendChild(td);
+                th.appendChild(headerContent);
+
+                // === RESIZER HANDLE ===
+                const resizer = ztoolkit.UI.createElement(doc, "div", {
+                    styles: {
+                        position: "absolute",
+                        right: "0",
+                        top: "0",
+                        bottom: "0",
+                        width: "5px",
+                        cursor: "col-resize",
+                        backgroundColor: "transparent",
+                        zIndex: "11"
+                    }
+                });
+
+                resizer.addEventListener("mouseenter", () => { resizer.style.backgroundColor = "var(--highlight-primary)"; });
+                resizer.addEventListener("mouseleave", () => { resizer.style.backgroundColor = "transparent"; });
+
+                resizer.addEventListener("mousedown", (e: MouseEvent) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    // Use rect for stable calculation
+                    const startLeft = th.getBoundingClientRect().left;
+
+                    if (doc.body) doc.body.style.cursor = "col-resize";
+
+                    const onMouseMove = (moveEvent: MouseEvent) => {
+                        const newWidth = moveEvent.clientX - startLeft;
+                        if (newWidth > 50) { // Min width
+                            th.style.width = `${newWidth}px`;
+                            th.style.minWidth = `${newWidth}px`;
+                        }
+                    };
+
+                    const onMouseUp = async () => {
+                        doc.removeEventListener("mousemove", onMouseMove);
+                        doc.removeEventListener("mouseup", onMouseUp);
+                        if (doc.body) doc.body.style.cursor = ""; // Reset cursor
+                        // Save new width
+                        col.width = parseInt(th.style.width);
+                        await saveSearchColumnConfig();
+                    };
+
+                    doc.addEventListener("mousemove", onMouseMove);
+                    doc.addEventListener("mouseup", onMouseUp);
+                });
+
+                th.appendChild(resizer);
+                headerRow.appendChild(th);
             });
 
+            thead.appendChild(headerRow);
+            table.appendChild(thead);
+        }
+
+        // === TABLE BODY ===
+        const tbody = ztoolkit.UI.createElement(doc, "tbody", {});
+        currentSearchResults.forEach(paper => {
+            const tr = this.createUnifiedResultRow(doc, paper, item, searchColumnConfig.columns);
             tbody.appendChild(tr);
         });
-
         table.appendChild(tbody);
         tableContainer.appendChild(table);
+
+        // "Show More" button (Initial placement at bottom of table container)
+        const showMoreBtn = ztoolkit.UI.createElement(doc, "button", {
+            properties: { innerText: "📥 Show More", id: "show-more-btn" },
+            styles: {
+                display: "block",
+                width: "calc(100% - 24px)",
+                margin: "12px",
+                padding: "12px",
+                backgroundColor: "var(--background-secondary)",
+                color: "var(--text-primary)",
+                border: "1px solid var(--border-primary)",
+                borderRadius: "6px",
+                fontSize: "13px",
+                cursor: "pointer"
+            },
+            listeners: [{
+                type: "click",
+                listener: async () => {
+                    const loadingDiv = ztoolkit.UI.createElement(doc, "div", {
+                        properties: { id: "show-more-loading" },
+                        styles: { textAlign: "center", padding: "16px", color: "var(--text-secondary)", fontSize: "12px" }
+                    });
+                    loadingDiv.innerHTML = "⏳ Loading more papers...";
+                    showMoreBtn.replaceWith(loadingDiv);
+                    await this.performSearch(doc);
+                }
+            }]
+        });
+        tableContainer.appendChild(showMoreBtn);
+
+
         wrapper.appendChild(tableContainer);
 
-        // === SIDE + BUTTON (full height) ===
-        const addColumnBtn = ztoolkit.UI.createElement(doc, "div", {
-            properties: { innerText: "+" },
-            attributes: { title: "Add new AI column" },
+        // === SIDE + BUTTON STRIP (Right Side) ===
+        const sideStrip = ztoolkit.UI.createElement(doc, "div", {
             styles: {
-                width: "32px",
-                minWidth: "32px",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                backgroundColor: "var(--background-tertiary)",
+                width: "30px",
+                minWidth: "30px",
                 borderLeft: "1px solid var(--border-primary)",
-                fontSize: "18px",
-                fontWeight: "700",
-                color: "var(--highlight-primary)",
-                cursor: "pointer",
-                transition: "all 0.15s ease",
-                flexShrink: "0"
+                backgroundColor: "var(--background-secondary)",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                paddingTop: "8px"
             }
         });
 
-        addColumnBtn.addEventListener("click", (e: Event) => {
-            e.stopPropagation();
-            this.showSearchColumnDropdown(doc, addColumnBtn as HTMLElement, resultsContainer, item);
+        const addColumnBtn = ztoolkit.UI.createElement(doc, "button", {
+            properties: { innerText: "➕" },
+            attributes: { title: "Add AI Analysis Column" },
+            styles: {
+                width: "24px",
+                height: "24px",
+                display: "flex",
+                justifyContent: "center",
+                alignItems: "center",
+                border: "1px solid var(--border-primary)",
+                borderRadius: "4px",
+                backgroundColor: "var(--background-primary)",
+                cursor: "pointer",
+                fontSize: "14px",
+                color: "var(--text-primary)"
+            },
+            listeners: [{
+                type: "click",
+                listener: (e: Event) => {
+                    e.stopPropagation();
+                    // Use the existing dropdown logic
+                    this.showSearchColumnDropdown(doc, addColumnBtn as HTMLButtonElement, resultsContainer, item);
+                }
+            }]
         });
+        sideStrip.appendChild(addColumnBtn);
 
-        addColumnBtn.addEventListener("mouseenter", () => {
-            addColumnBtn.style.backgroundColor = "var(--highlight-primary)";
-            addColumnBtn.style.color = "var(--highlight-text)";
-        });
-        addColumnBtn.addEventListener("mouseleave", () => {
-            addColumnBtn.style.backgroundColor = "var(--background-tertiary)";
-            addColumnBtn.style.color = "var(--highlight-primary)";
-        });
-
-        wrapper.appendChild(addColumnBtn);
+        wrapper.appendChild(sideStrip);
 
         return wrapper;
     }
@@ -8573,9 +8599,15 @@ Task: ${columnPrompt}`;
         dropdown.appendChild(content);
 
         // Position dropdown below the button
+        // Position dropdown below the button, aligned to the right
         const rect = anchorEl.getBoundingClientRect();
         dropdown.style.top = `${rect.bottom + 4}px`;
-        dropdown.style.left = `${rect.left}px`;
+        // Align right edge of dropdown with right edge of button (plus a little padding)
+        // Align right edge of dropdown with right edge of button (plus a little padding)
+        const win = doc.defaultView || (doc as any).parentWindow || { innerWidth: 1200 };
+        const rightOffset = win.innerWidth - rect.right;
+        dropdown.style.right = `${rightOffset}px`;
+        dropdown.style.left = "auto";
         const container = doc.body || doc.documentElement;
         if (container) container.appendChild(dropdown);
 
