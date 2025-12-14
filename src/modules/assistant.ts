@@ -1898,8 +1898,7 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
             container.appendChild(card);
         });
 
-        // Trigger batch Unpaywall check for papers without PDFs
-        this.batchCheckUnpaywall(doc, currentSearchResults);
+        // Note: PDF discovery is now triggered automatically in createSearchResultCard
 
         // "Show More" button
         const showMoreBtn = ztoolkit.UI.createElement(doc, "button", {
@@ -2026,8 +2025,7 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
             container.appendChild(card);
         });
 
-        // Batch check Unpaywall for papers without PDFs
-        this.batchCheckUnpaywall(doc, newPapers);
+        // Note: PDF discovery runs automatically in createSearchResultCard for each new paper
 
         // Add Show More button at the end
         const showMoreBtn = ztoolkit.UI.createElement(doc, "button", {
@@ -2087,7 +2085,7 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
         header.appendChild(title);
 
         if (paper.openAccessPdf) {
-            // Paper has open access PDF from Semantic Scholar
+            // Paper has open access PDF from Semantic Scholar - show badge in header
             const pdfBadge = ztoolkit.UI.createElement(doc, "span", {
                 properties: { innerText: "📄 PDF" },
                 styles: {
@@ -2097,227 +2095,22 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
                     color: "#2e7d32",
                     borderRadius: "4px",
                     marginLeft: "8px",
-                    whiteSpace: "nowrap"
-                }
-            });
-            header.appendChild(pdfBadge);
-        } else if (paper.externalIds?.DOI) {
-            // No Semantic Scholar PDF, but has DOI - check Unpaywall async
-            const pdfBadge = ztoolkit.UI.createElement(doc, "span", {
-                properties: { innerText: "🔍 Checking..." },
-                styles: {
-                    fontSize: "10px",
-                    padding: "2px 6px",
-                    backgroundColor: "#fff3e0",
-                    color: "#e65100",
-                    borderRadius: "4px",
-                    marginLeft: "8px",
-                    whiteSpace: "nowrap"
-                }
-            });
-            header.appendChild(pdfBadge);
-
-            // Check cache first
-            if (unpaywallPdfCache.has(paper.paperId)) {
-                const cachedUrl = unpaywallPdfCache.get(paper.paperId)!;
-                pdfBadge.innerText = "🔗 PDF (Unpaywall)";
-                pdfBadge.style.backgroundColor = "#e3f2fd";
-                pdfBadge.style.color = "#1976d2";
-                pdfBadge.style.cursor = "pointer";
-                pdfBadge.title = cachedUrl;
-                pdfBadge.addEventListener("click", (e: Event) => {
-                    e.stopPropagation();
-                    Zotero.launchURL(cachedUrl);
-                });
-            } else {
-                // Async check Unpaywall
-                unpaywallService.getPdfUrl(paper.externalIds.DOI).then(pdfUrl => {
-                    if (pdfUrl) {
-                        unpaywallPdfCache.set(paper.paperId, pdfUrl);
-                        pdfBadge.innerText = "🔗 PDF (Unpaywall)";
-                        pdfBadge.style.backgroundColor = "#e3f2fd";
-                        pdfBadge.style.color = "#1976d2";
-                        pdfBadge.style.cursor = "pointer";
-                        pdfBadge.title = pdfUrl;
-                        pdfBadge.addEventListener("click", (e: Event) => {
-                            e.stopPropagation();
-                            Zotero.launchURL(pdfUrl);
-                        });
-                    } else {
-                        // Unpaywall failed - try Firecrawl as fallback (if configured)
-                        if (firecrawlService.isConfigured()) {
-                            pdfBadge.innerText = "🔥 Searching...";
-                            pdfBadge.style.backgroundColor = "#fff8e1";
-                            pdfBadge.style.color = "#ff8f00";
-
-                            firecrawlService.researchSearch(
-                                paper.title,
-                                paper.authors?.map(a => a.name),
-                                paper.externalIds?.DOI
-                            ).then(result => {
-                                if (result && result.pdfUrl) {
-                                    firecrawlPdfCache.set(paper.paperId, result);
-                                    pdfBadge.innerText = "🔥 PDF (Firecrawl)";
-                                    pdfBadge.style.backgroundColor = "#fff3e0";
-                                    pdfBadge.style.color = "#e65100";
-                                    pdfBadge.style.cursor = "pointer";
-                                    pdfBadge.title = result.pdfUrl;
-                                    pdfBadge.addEventListener("click", (e: Event) => {
-                                        e.stopPropagation();
-                                        Zotero.launchURL(result.pdfUrl!);
-                                    });
-                                } else if (result && result.pageUrl) {
-                                    // No PDF but found paper page
-                                    firecrawlPdfCache.set(paper.paperId, result);
-                                    pdfBadge.innerText = "🔗 Page";
-                                    pdfBadge.style.backgroundColor = "#e8eaf6";
-                                    pdfBadge.style.color = "#3f51b5";
-                                    pdfBadge.style.cursor = "pointer";
-                                    pdfBadge.title = result.pageUrl;
-                                    pdfBadge.addEventListener("click", (e: Event) => {
-                                        e.stopPropagation();
-                                        Zotero.launchURL(result.pageUrl!);
-                                    });
-                                } else {
-                                    pdfBadge.innerText = "📭 No PDF";
-                                    pdfBadge.style.backgroundColor = "#fafafa";
-                                    pdfBadge.style.color = "#9e9e9e";
-                                }
-                            }).catch(() => {
-                                pdfBadge.innerText = "📭 No PDF";
-                                pdfBadge.style.backgroundColor = "#fafafa";
-                                pdfBadge.style.color = "#9e9e9e";
-                            });
-                        } else {
-                            pdfBadge.innerText = "📭 No PDF";
-                            pdfBadge.style.backgroundColor = "#fafafa";
-                            pdfBadge.style.color = "#9e9e9e";
-                        }
-                    }
-                }).catch(() => {
-                    // Unpaywall error - try Firecrawl if configured
-                    if (firecrawlService.isConfigured()) {
-                        pdfBadge.innerText = "🔥 Searching...";
-                        pdfBadge.style.backgroundColor = "#fff8e1";
-                        pdfBadge.style.color = "#ff8f00";
-
-                        firecrawlService.researchSearch(
-                            paper.title,
-                            paper.authors?.map(a => a.name),
-                            paper.externalIds?.DOI
-                        ).then(result => {
-                            if (result && result.pdfUrl) {
-                                firecrawlPdfCache.set(paper.paperId, result);
-                                pdfBadge.innerText = "🔥 PDF (Firecrawl)";
-                                pdfBadge.style.backgroundColor = "#fff3e0";
-                                pdfBadge.style.color = "#e65100";
-                                pdfBadge.style.cursor = "pointer";
-                                pdfBadge.title = result.pdfUrl;
-                                pdfBadge.addEventListener("click", (e: Event) => {
-                                    e.stopPropagation();
-                                    Zotero.launchURL(result.pdfUrl!);
-                                });
-                            } else {
-                                pdfBadge.innerText = "📭 No PDF";
-                                pdfBadge.style.backgroundColor = "#fafafa";
-                                pdfBadge.style.color = "#9e9e9e";
-                            }
-                        }).catch(() => {
-                            pdfBadge.innerText = "📭 No PDF";
-                            pdfBadge.style.backgroundColor = "#fafafa";
-                            pdfBadge.style.color = "#9e9e9e";
-                        });
-                    } else {
-                        pdfBadge.innerText = "📭 No PDF";
-                        pdfBadge.style.backgroundColor = "#fafafa";
-                        pdfBadge.style.color = "#9e9e9e";
-                    }
-                });
-            }
-        } else if (firecrawlService.isConfigured()) {
-            // No Semantic Scholar PDF and no DOI - try Firecrawl directly by title
-            const pdfBadge = ztoolkit.UI.createElement(doc, "span", {
-                properties: { innerText: "🔥 Searching..." },
-                styles: {
-                    fontSize: "10px",
-                    padding: "2px 6px",
-                    backgroundColor: "#fff8e1",
-                    color: "#ff8f00",
-                    borderRadius: "4px",
-                    marginLeft: "8px",
-                    whiteSpace: "nowrap"
-                }
-            });
-            header.appendChild(pdfBadge);
-
-            // Check cache first
-            const cachedResult = firecrawlPdfCache.get(paper.paperId);
-            if (cachedResult) {
-                if (cachedResult.pdfUrl) {
-                    pdfBadge.innerText = "🔥 PDF (Firecrawl)";
-                    pdfBadge.style.backgroundColor = "#fff3e0";
-                    pdfBadge.style.color = "#e65100";
-                    pdfBadge.style.cursor = "pointer";
-                    pdfBadge.title = cachedResult.pdfUrl;
-                    pdfBadge.addEventListener("click", (e: Event) => {
+                    whiteSpace: "nowrap",
+                    cursor: "pointer"
+                },
+                listeners: [{
+                    type: "click",
+                    listener: (e: Event) => {
                         e.stopPropagation();
-                        Zotero.launchURL(cachedResult.pdfUrl!);
-                    });
-                } else if (cachedResult.pageUrl) {
-                    pdfBadge.innerText = "🔗 Page";
-                    pdfBadge.style.backgroundColor = "#e8eaf6";
-                    pdfBadge.style.color = "#3f51b5";
-                    pdfBadge.style.cursor = "pointer";
-                    pdfBadge.title = cachedResult.pageUrl;
-                    pdfBadge.addEventListener("click", (e: Event) => {
-                        e.stopPropagation();
-                        Zotero.launchURL(cachedResult.pageUrl!);
-                    });
-                } else {
-                    pdfBadge.innerText = "📭 No PDF";
-                    pdfBadge.style.backgroundColor = "#fafafa";
-                    pdfBadge.style.color = "#9e9e9e";
-                }
-            } else {
-                // Search with Firecrawl
-                firecrawlService.researchSearch(
-                    paper.title,
-                    paper.authors?.map(a => a.name)
-                ).then(result => {
-                    if (result && result.pdfUrl) {
-                        firecrawlPdfCache.set(paper.paperId, result);
-                        pdfBadge.innerText = "🔥 PDF (Firecrawl)";
-                        pdfBadge.style.backgroundColor = "#fff3e0";
-                        pdfBadge.style.color = "#e65100";
-                        pdfBadge.style.cursor = "pointer";
-                        pdfBadge.title = result.pdfUrl;
-                        pdfBadge.addEventListener("click", (e: Event) => {
-                            e.stopPropagation();
-                            Zotero.launchURL(result.pdfUrl!);
-                        });
-                    } else if (result && result.pageUrl) {
-                        firecrawlPdfCache.set(paper.paperId, result);
-                        pdfBadge.innerText = "🔗 Page";
-                        pdfBadge.style.backgroundColor = "#e8eaf6";
-                        pdfBadge.style.color = "#3f51b5";
-                        pdfBadge.style.cursor = "pointer";
-                        pdfBadge.title = result.pageUrl;
-                        pdfBadge.addEventListener("click", (e: Event) => {
-                            e.stopPropagation();
-                            Zotero.launchURL(result.pageUrl!);
-                        });
-                    } else {
-                        pdfBadge.innerText = "📭 No PDF";
-                        pdfBadge.style.backgroundColor = "#fafafa";
-                        pdfBadge.style.color = "#9e9e9e";
+                        Zotero.launchURL(paper.openAccessPdf!.url);
                     }
-                }).catch(() => {
-                    pdfBadge.innerText = "📭 No PDF";
-                    pdfBadge.style.backgroundColor = "#fafafa";
-                    pdfBadge.style.color = "#9e9e9e";
-                });
-            }
+                }]
+            });
+            pdfBadge.title = paper.openAccessPdf.url;
+            header.appendChild(pdfBadge);
         }
+        // Note: PDF discovery button will be added in the actions area for papers without openAccessPdf
+
 
         card.appendChild(header);
 
@@ -2470,9 +2263,149 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
                 }]
             });
             actions.appendChild(pdfBtn);
+        } else {
+            // No Semantic Scholar PDF - create PDF Discovery button with state-based handling
+            Zotero.debug(`[seerai] Creating PDF discovery button for paper: ${paper.title.slice(0, 50)}...`);
+
+            // State to track what the button should do when clicked
+            let buttonState: 'searching' | 'retry' | 'pdf' | 'page' = 'searching';
+            let pdfUrl: string | null = null;
+            let pageUrl: string | null = null;
+
+            const pdfDiscoveryBtn = ztoolkit.UI.createElement(doc, "button", {
+                properties: { innerText: "🔎 Find PDF" },
+                styles: { ...actionBtnStyle, backgroundColor: "#e3f2fd", color: "#1976d2", border: "1px solid #90caf9" },
+                listeners: [{
+                    type: "click",
+                    listener: (e: Event) => {
+                        e.stopPropagation();
+                        Zotero.debug(`[seerai] Button clicked, state: ${buttonState}`);
+
+                        if (buttonState === 'pdf' && pdfUrl) {
+                            Zotero.launchURL(pdfUrl);
+                        } else if (buttonState === 'page' && pageUrl) {
+                            Zotero.launchURL(pageUrl);
+                        } else if (buttonState === 'retry') {
+                            Zotero.debug(`[seerai] Retry clicked for: ${paper.title.slice(0, 50)}...`);
+                            // Clear caches for this paper so retry makes fresh API calls
+                            if (paper.externalIds?.DOI) {
+                                unpaywallService.clearCacheForDoi(paper.externalIds.DOI);
+                            }
+                            firecrawlService.clearPdfCacheForPaper(
+                                paper.title,
+                                paper.authors?.map(a => a.name),
+                                paper.externalIds?.DOI
+                            );
+                            runPdfDiscovery();
+                        }
+                        // Do nothing if still searching
+                    }
+                }]
+            });
+            actions.appendChild(pdfDiscoveryBtn);
+
+            // PDF discovery function that updates the button state and appearance
+            const runPdfDiscovery = async () => {
+                Zotero.debug(`[seerai] runPdfDiscovery started for: ${paper.title.slice(0, 50)}...`);
+                buttonState = 'searching';
+                pdfDiscoveryBtn.textContent = "🔎 Searching...";
+                pdfDiscoveryBtn.style.backgroundColor = "#e3f2fd";
+                pdfDiscoveryBtn.style.color = "#1976d2";
+                pdfDiscoveryBtn.style.border = "1px solid #90caf9";
+                pdfDiscoveryBtn.disabled = true;
+
+                try {
+                    // Step 1: Try Unpaywall if DOI available
+                    if (paper.externalIds?.DOI) {
+                        Zotero.debug(`[seerai] Trying Unpaywall for DOI: ${paper.externalIds.DOI}`);
+                        const unpaywallResult = await unpaywallService.getPdfUrl(paper.externalIds.DOI);
+                        if (unpaywallResult) {
+                            Zotero.debug(`[seerai] Unpaywall found PDF: ${unpaywallResult}`);
+                            unpaywallPdfCache.set(paper.paperId, unpaywallResult);
+                            buttonState = 'pdf';
+                            pdfUrl = unpaywallResult;
+                            pdfDiscoveryBtn.textContent = "📄 Unpaywall PDF";
+                            pdfDiscoveryBtn.style.backgroundColor = "#e8f5e9";
+                            pdfDiscoveryBtn.style.color = "#2e7d32";
+                            pdfDiscoveryBtn.style.border = "1px solid #a5d6a7";
+                            pdfDiscoveryBtn.disabled = false;
+                            return;
+                        }
+                    }
+
+                    // Step 2: Try Firecrawl if configured
+                    /*
+                    if (firecrawlService.isConfigured()) {
+                        Zotero.debug(`[seerai] Trying Firecrawl for: ${paper.title.slice(0, 50)}...`);
+                        pdfDiscoveryBtn.textContent = "🔥 Searching...";
+                        pdfDiscoveryBtn.style.backgroundColor = "#fff8e1";
+                        pdfDiscoveryBtn.style.color = "#ff8f00";
+                        pdfDiscoveryBtn.style.border = "1px solid #ffcc80";
+
+                        const firecrawlResult = await firecrawlService.searchForPdf(
+                            paper.title,
+                            paper.authors?.map(a => a.name),
+                            paper.externalIds?.DOI
+                        );
+
+                        Zotero.debug(`[seerai] Firecrawl result: ${JSON.stringify(firecrawlResult)}`);
+
+                        if (firecrawlResult.status === 'pdf_found' && firecrawlResult.pdfUrl) {
+                            firecrawlPdfCache.set(paper.paperId, firecrawlResult);
+                            buttonState = 'pdf';
+                            pdfUrl = firecrawlResult.pdfUrl;
+                            pdfDiscoveryBtn.textContent = "🔥 Fire PDF";
+                            pdfDiscoveryBtn.style.backgroundColor = "#fff3e0";
+                            pdfDiscoveryBtn.style.color = "#e65100";
+                            pdfDiscoveryBtn.style.border = "1px solid #ffcc80";
+                            pdfDiscoveryBtn.disabled = false;
+                            return;
+                        } else if (firecrawlResult.status === 'page_found' && firecrawlResult.pageUrl) {
+                            firecrawlPdfCache.set(paper.paperId, firecrawlResult);
+                            buttonState = 'page';
+                            pageUrl = firecrawlResult.pageUrl;
+                            pdfDiscoveryBtn.textContent = "🔗 Fire-page";
+                            pdfDiscoveryBtn.style.backgroundColor = "#e8eaf6";
+                            pdfDiscoveryBtn.style.color = "#3f51b5";
+                            pdfDiscoveryBtn.style.border = "1px solid #9fa8da";
+                            pdfDiscoveryBtn.disabled = false;
+                            return;
+                        }
+                    }
+                    */
+
+                    // All methods failed - show Retry button
+                    Zotero.debug(`[seerai] All methods failed, showing Retry button`);
+                    buttonState = 'retry';
+                    pdfDiscoveryBtn.textContent = "🔁 Retry";
+                    pdfDiscoveryBtn.style.backgroundColor = "#fafafa";
+                    pdfDiscoveryBtn.style.color = "#757575";
+                    pdfDiscoveryBtn.style.border = "1px solid #e0e0e0";
+                    pdfDiscoveryBtn.disabled = false;
+
+                } catch (error) {
+                    Zotero.debug(`[seerai] PDF discovery error for ${paper.paperId}: ${error}`);
+                    buttonState = 'retry';
+                    pdfDiscoveryBtn.textContent = "🔁 Retry";
+                    pdfDiscoveryBtn.style.backgroundColor = "#fafafa";
+                    pdfDiscoveryBtn.style.color = "#757575";
+                    pdfDiscoveryBtn.style.border = "1px solid #e0e0e0";
+                    pdfDiscoveryBtn.disabled = false;
+                }
+            };
+
+            // Start discovery immediately when card is created
+            setTimeout(() => {
+                Zotero.debug(`[seerai] setTimeout callback - starting discovery for: ${paper.title.slice(0, 50)}...`);
+                runPdfDiscovery();
+            }, 100);
         }
 
+
+
+
         // Find Similar button (recommendations)
+
         const similarBtn = ztoolkit.UI.createElement(doc, "button", {
             properties: { innerText: "🔮 Similar" },
             styles: actionBtnStyle,
