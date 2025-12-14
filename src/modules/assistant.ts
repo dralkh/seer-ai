@@ -92,9 +92,11 @@ async function findPdfViaZotero(
         return zoteroFindPdfCache.get(cacheKey) || null;
     }
 
+    let tempItem: Zotero.Item | null = null;
+
     try {
         // Create temporary item with minimal metadata for resolver lookup
-        const tempItem = new Zotero.Item('journalArticle');
+        tempItem = new Zotero.Item('journalArticle');
         tempItem.libraryID = Zotero.Libraries.userLibraryID;
         if (title) tempItem.setField('title', title);
         if (doi) tempItem.setField('DOI', doi);
@@ -112,16 +114,22 @@ async function findPdfViaZotero(
             Zotero.debug(`[seerai] Zotero Find Full Text: Found PDF at ${pdfPath}`);
         }
 
-        // Delete temporary item (and its attachments)
-        await tempItem.eraseTx();
-        Zotero.debug(`[seerai] Zotero Find Full Text: Deleted temp item`);
-
         zoteroFindPdfCache.set(cacheKey, pdfPath);
         return pdfPath;
     } catch (error) {
         Zotero.debug(`[seerai] Zotero Find Full Text error: ${error}`);
         zoteroFindPdfCache.set(cacheKey, null);
         return null;
+    } finally {
+        // Always delete temporary item
+        if (tempItem) {
+            try {
+                await tempItem.eraseTx();
+                Zotero.debug(`[seerai] Zotero Find Full Text: Deleted temp item`);
+            } catch (e) {
+                Zotero.debug(`[seerai] Error deleting temp item: ${e}`);
+            }
+        }
     }
 }
 
