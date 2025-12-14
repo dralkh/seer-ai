@@ -631,6 +631,16 @@ class UnpaywallService {
     clearCache(): void {
         this.cache.clear();
     }
+
+    /**
+     * Clear cache for a specific DOI (used when retrying PDF discovery)
+     */
+    clearCacheForDoi(doi: string): void {
+        if (!doi) return;
+        const normalizedDoi = doi.toLowerCase().trim();
+        this.cache.delete(normalizedDoi);
+        Zotero.debug(`[seerai] Cleared Unpaywall cache for DOI: ${normalizedDoi}`);
+    }
 }
 
 // Export Unpaywall singleton

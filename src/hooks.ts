@@ -48,12 +48,26 @@ async function onMainWindowLoad(win: _ZoteroTypes.MainWindow): Promise<void> {
     if (!menuItem) {
       menuItem = win.document.createXULElement("menuitem") as XUL.MenuItem;
       menuItem.setAttribute("id", menuItemId);
-      menuItem.setAttribute("label", "Extract with OCR");
+      menuItem.setAttribute("label", "🔍 Extract with ocr");
       menuItem.setAttribute("class", "menuitem-iconic");
       menuItem.addEventListener("command", async () => {
         await processSelectedItems();
       });
       menu.appendChild(menuItem);
+    }
+
+    // Search all PDF menu item
+    const searchPdfMenuId = "seerai-search-pdf";
+    let searchPdfMenu = win.document.getElementById(searchPdfMenuId) as XUL.MenuItem;
+    if (!searchPdfMenu) {
+      searchPdfMenu = win.document.createXULElement("menuitem") as XUL.MenuItem;
+      searchPdfMenu.setAttribute("id", searchPdfMenuId);
+      searchPdfMenu.setAttribute("label", "🔍 Search all PDF");
+      searchPdfMenu.setAttribute("class", "menuitem-iconic");
+      searchPdfMenu.addEventListener("command", async () => {
+        await searchPdfsForSelectedItems();
+      });
+      menu.appendChild(searchPdfMenu);
     }
 
     // Handle visibility
@@ -68,6 +82,25 @@ async function onMainWindowLoad(win: _ZoteroTypes.MainWindow): Promise<void> {
         return false;
       });
       menuItem.hidden = !hasPdf;
+
+      // Show search PDF menu for items without PDF but with identifiers
+      const hasItemsWithoutPdf = items.some(item => {
+        if (!item.isRegularItem()) return false;
+        const attachments = item.getAttachments() || [];
+        const hasPdfAttachment = attachments.some((attId: number) => {
+          const att = Zotero.Items.get(attId);
+          return att && (att.attachmentContentType === 'application/pdf' ||
+            att.attachmentPath?.toLowerCase().endsWith('.pdf'));
+        });
+        if (hasPdfAttachment) return false;
+        // Check for identifiers
+        const doi = item.getField('DOI');
+        const extra = item.getField('extra') as string || '';
+        const hasArxiv = /arxiv:/i.test(extra);
+        const hasPmid = /pmid:/i.test(extra);
+        return !!(doi || hasArxiv || hasPmid);
+      });
+      searchPdfMenu.hidden = !hasItemsWithoutPdf;
     });
   }
 
@@ -152,6 +185,66 @@ async function processSelectedItems() {
   }
 
   await processParentItemsInBatches(parentItems);
+}
+
+/**
+ * Search for PDFs for selected items that don't have PDF attachments
+ */
+async function searchPdfsForSelectedItems() {
+  const items = Zotero.getActiveZoteroPane().getSelectedItems();
+  ztoolkit.log(`Search PDF: Selected ${items.length} items`);
+
+  // Filter items without PDF but with identifiers
+  const itemsToSearch: Zotero.Item[] = [];
+
+  for (const item of items) {
+    if (!item.isRegularItem()) continue;
+
+    // Check if has PDF already
+    const attachments = item.getAttachments() || [];
+    const hasPdf = attachments.some((attId: number) => {
+      const att = Zotero.Items.get(attId);
+      return att && (att.attachmentContentType === 'application/pdf' ||
+        att.attachmentPath?.toLowerCase().endsWith('.pdf'));
+    });
+
+    if (!hasPdf) {
+      // Check for identifiers
+      const doi = item.getField('DOI');
+      const extra = item.getField('extra') as string || '';
+      const hasArxiv = /arxiv:/i.test(extra);
+      const hasPmid = /pmid:/i.test(extra);
+      if (doi || hasArxiv || hasPmid) {
+        itemsToSearch.push(item);
+      }
+    }
+  }
+
+  ztoolkit.log(`Search PDF: ${itemsToSearch.length} items to search`);
+  if (itemsToSearch.length === 0) {
+    ztoolkit.log("No items without PDF to search");
+    return;
+  }
+
+  // Use Assistant's PDF discovery
+  const { findAndAttachPdfForItem } = await import("./modules/assistant");
+
+  ztoolkit.log(`Search PDF: Processing ${itemsToSearch.length} items...`);
+
+  let found = 0;
+  for (let i = 0; i < itemsToSearch.length; i++) {
+    const item = itemsToSearch[i];
+    ztoolkit.log(`Search PDF: ${i + 1}/${itemsToSearch.length} - ${item.getField('title')}`);
+
+    try {
+      const success = await findAndAttachPdfForItem(item);
+      if (success) found++;
+    } catch (e) {
+      ztoolkit.log(`Search PDF error for ${item.id}: ${e}`);
+    }
+  }
+
+  ztoolkit.log(`Search PDF: Done! Found ${found}/${itemsToSearch.length} PDFs`);
 }
 
 /**

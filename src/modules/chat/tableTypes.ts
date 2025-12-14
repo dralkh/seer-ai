@@ -181,3 +181,27 @@ export const defaultSearchState: SearchState = {
     saveLocation: 'user', // Default to user library
 };
 
+// ==================== Search Analysis Column Types ====================
+
+// Search analysis column for in-place paper analysis (without Zotero import)
+export interface SearchAnalysisColumn {
+    id: string;
+    name: string;
+    aiPrompt: string;
+    width: number;
+}
+
+// Search column configuration storage
+export interface SearchColumnConfig {
+    columns: SearchAnalysisColumn[];
+    // Cache of generated values: { paperId: { columnId: value } }
+    generatedData: { [paperId: string]: { [columnId: string]: string } };
+    responseLength: number;
+}
+
+// Default empty search column configuration
+export const defaultSearchColumnConfig: SearchColumnConfig = {
+    columns: [],
+    generatedData: {},
+    responseLength: 100 // Default to short/concise
+};

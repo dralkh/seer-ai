@@ -49,6 +49,7 @@ export interface PdfDiscoveryResult {
     pdfUrl?: string;
     pageUrl?: string;
     source: 'firecrawl';
+    status: 'pdf_found' | 'page_found' | 'not_found';
 }
 
 // ==================== Service Class ====================
@@ -71,7 +72,7 @@ class FirecrawlService {
         return {
             apiKey: Zotero.Prefs.get(`${prefPrefix}.firecrawlApiKey`) as string || "",
             apiUrl: Zotero.Prefs.get(`${prefPrefix}.firecrawlApiUrl`) as string
-                || "https://api.firecrawl.dev/v2 or http://localhost:3002/v1 ",
+                || "https://api.firecrawl.dev/v2 or http://localhost:3002/v2 ",
             searchLimit: (Zotero.Prefs.get(`${prefPrefix}.firecrawlSearchLimit`) as number) || 3,
             maxConcurrent: (Zotero.Prefs.get(`${prefPrefix}.firecrawlMaxConcurrent`) as number) || 3
         };
@@ -273,6 +274,115 @@ class FirecrawlService {
     }
 
     /**
+     * Enhanced PDF discovery using two-phase search approach
+     * Phase 1: Search with categories=["pdf"] for direct PDF links
+     * Phase 2: If no PDF found, search with categories=["research"] for paper pages
+     * 
+     * Returns a result with status indicating: pdf_found, page_found, or not_found
+     */
+    async searchForPdf(
+        title: string,
+        authors?: string[],
+        doi?: string
+    ): Promise<PdfDiscoveryResult> {
+        if (!this.isConfigured()) {
+            return { source: 'firecrawl', status: 'not_found' };
+        }
+
+        // Build search query
+        let query = title;
+        if (doi) {
+            // DOI is most specific - prioritize it
+            query = `"${doi}" OR "${title}"`;
+        } else if (authors && authors.length > 0) {
+            // Add first author to narrow down search
+            query = `"${title}" ${authors[0]}`;
+        }
+
+        // Check cache first
+        const cacheKey = `pdf_search:${query}`;
+        if (this.pdfDiscoveryCache.has(cacheKey)) {
+            Zotero.debug(`[seerai] Firecrawl PDF search cache hit for: ${title}`);
+            return this.pdfDiscoveryCache.get(cacheKey) ?? { source: 'firecrawl', status: 'not_found' };
+        }
+
+        try {
+            // Phase 1: Search specifically for PDFs
+            Zotero.debug(`[seerai] Firecrawl Phase 1 - PDF search: ${query}`);
+            const pdfResponse = await this.rateLimitedFetch("/search", {
+                method: "POST",
+                body: JSON.stringify({
+                    query,
+                    limit: 5,
+                    categories: ["pdf"],
+                    scrapeOptions: {
+                        formats: ["links"]
+                    }
+                })
+            });
+
+            if (pdfResponse.ok) {
+                const pdfData = await pdfResponse.json() as unknown as FirecrawlSearchResponse;
+                const pdfResults: FirecrawlSearchResult[] = Array.isArray(pdfData.data)
+                    ? pdfData.data
+                    : pdfData.data?.web || [];
+
+                Zotero.debug(`[seerai] Firecrawl PDF search returned ${pdfResults.length} results`);
+
+                if (pdfResults.length > 0) {
+                    const pdfResult = this.extractPdfFromResults(pdfResults);
+                    if (pdfResult && pdfResult.status === 'pdf_found') {
+                        this.pdfDiscoveryCache.set(cacheKey, pdfResult);
+                        return pdfResult;
+                    }
+                }
+            }
+
+            // Phase 2: Search for research/academic pages
+            Zotero.debug(`[seerai] Firecrawl Phase 2 - Research search: ${query}`);
+            const researchResponse = await this.rateLimitedFetch("/search", {
+                method: "POST",
+                body: JSON.stringify({
+                    query,
+                    limit: 5,
+                    categories: ["research"],
+                    scrapeOptions: {
+                        formats: ["markdown", "links"]
+                    }
+                })
+            });
+
+            if (researchResponse.ok) {
+                const researchData = await researchResponse.json() as unknown as FirecrawlSearchResponse;
+                const researchResults: FirecrawlSearchResult[] = Array.isArray(researchData.data)
+                    ? researchData.data
+                    : researchData.data?.web || [];
+
+                Zotero.debug(`[seerai] Firecrawl research search returned ${researchResults.length} results`);
+
+                if (researchResults.length > 0) {
+                    const result = this.extractPdfFromResults(researchResults);
+                    if (result) {
+                        this.pdfDiscoveryCache.set(cacheKey, result);
+                        return result;
+                    }
+                }
+            }
+
+            // No results found
+            const notFoundResult: PdfDiscoveryResult = { source: 'firecrawl', status: 'not_found' };
+            this.pdfDiscoveryCache.set(cacheKey, notFoundResult);
+            return notFoundResult;
+
+        } catch (error) {
+            Zotero.debug(`[seerai] Firecrawl searchForPdf error: ${error}`);
+            const errorResult: PdfDiscoveryResult = { source: 'firecrawl', status: 'not_found' };
+            this.pdfDiscoveryCache.set(cacheKey, errorResult);
+            return errorResult;
+        }
+    }
+
+    /**
      * Extract PDF URL from search results
      * Looks for direct PDF links, download links, and PDF URLs in markdown
      */
@@ -285,7 +395,8 @@ class FirecrawlService {
                 Zotero.debug(`[seerai] Found PDF URL: ${result.url}`);
                 return {
                     pdfUrl: result.url,
-                    source: 'firecrawl'
+                    source: 'firecrawl',
+                    status: 'pdf_found'
                 };
             }
 
@@ -297,7 +408,8 @@ class FirecrawlService {
                         return {
                             pdfUrl: link,
                             pageUrl: result.url,
-                            source: 'firecrawl'
+                            source: 'firecrawl',
+                            status: 'pdf_found'
                         };
                     }
                 }
@@ -313,7 +425,8 @@ class FirecrawlService {
                     return {
                         pdfUrl: match[2],
                         pageUrl: result.url,
-                        source: 'firecrawl'
+                        source: 'firecrawl',
+                        status: 'pdf_found'
                     };
                 }
 
@@ -325,9 +438,22 @@ class FirecrawlService {
                     return {
                         pdfUrl: downloadMatch[2],
                         pageUrl: result.url,
-                        source: 'firecrawl'
+                        source: 'firecrawl',
+                        status: 'pdf_found'
                     };
                 }
+            }
+
+            // 4. Check for arXiv abstract page - convert to PDF URL
+            if (result.url.includes('arxiv.org/abs/')) {
+                const pdfUrl = result.url.replace('/abs/', '/pdf/') + '.pdf';
+                Zotero.debug(`[seerai] Converted arXiv abstract to PDF: ${pdfUrl}`);
+                return {
+                    pdfUrl: pdfUrl,
+                    pageUrl: result.url,
+                    source: 'firecrawl',
+                    status: 'pdf_found'
+                };
             }
         }
 
@@ -336,7 +462,8 @@ class FirecrawlService {
             Zotero.debug(`[seerai] No PDF found, returning page URL: ${results[0].url}`);
             return {
                 pageUrl: results[0].url,
-                source: 'firecrawl'
+                source: 'firecrawl',
+                status: 'page_found'
             };
         }
 
@@ -369,6 +496,28 @@ class FirecrawlService {
      */
     clearPdfCache(): void {
         this.pdfDiscoveryCache.clear();
+    }
+
+    /**
+     * Clear PDF cache for a specific paper query (used when retrying PDF discovery)
+     */
+    clearPdfCacheForPaper(title: string, authors?: string[], doi?: string): void {
+        // Build the same query key used in searchForPdf
+        let query = title;
+        if (doi) {
+            query = `"${doi}" OR "${title}"`;
+        } else if (authors && authors.length > 0) {
+            query = `"${title}" ${authors[0]}`;
+        }
+
+        const cacheKey = `pdf_search:${query}`;
+        this.pdfDiscoveryCache.delete(cacheKey);
+
+        // Also clear research search cache
+        const researchKey = `research:${query}`;
+        this.pdfDiscoveryCache.delete(researchKey);
+
+        Zotero.debug(`[seerai] Cleared Firecrawl PDF cache for: ${title.slice(0, 50)}...`);
     }
 }
 

@@ -8,11 +8,12 @@ import { parseMarkdown } from "../markdown";
 
 /**
  * Message colors configuration
+ * Uses CSS variables to support both light and dark modes
  */
 export const messageColors = {
-    user: { bg: "#e3f2fd", text: "#1976d2" },
-    assistant: { bg: "#f5f5f5", text: "#424242" },
-    error: { bg: "#ffebee", text: "#c62828" }
+    user: { bg: "var(--message-user-background)", text: "var(--message-user-text)" },
+    assistant: { bg: "var(--message-assistant-background)", text: "var(--message-assistant-text)" },
+    error: { bg: "var(--button-clear-background)", text: "var(--button-clear-text)" }
 };
 
 /**
