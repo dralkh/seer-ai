@@ -63,6 +63,61 @@ const unpaywallPdfCache = new Map<string, string>();
 // Cache for Firecrawl PDF discovery results (paperId -> result)
 const firecrawlPdfCache = new Map<string, PdfDiscoveryResult>();
 
+// Cache for Zotero Find Full Text results (cacheKey -> pdfPath or null)
+const zoteroFindPdfCache: Map<string, string | null> = new Map();
+
+/**
+ * Use Zotero's Find Full Text resolver to fetch PDF for a paper.
+ * Creates a temporary item, calls addAvailablePDF, extracts PDF path, then deletes the temp item.
+ * Returns PDF URL/path if found, null otherwise.
+ */
+async function findPdfViaZotero(
+    doi?: string,
+    arxivId?: string,
+    pmid?: string,
+    title?: string,
+    url?: string
+): Promise<string | null> {
+    const cacheKey = doi || arxivId || pmid || title?.slice(0, 50) || '';
+    if (!cacheKey) return null;
+
+    if (zoteroFindPdfCache.has(cacheKey)) {
+        return zoteroFindPdfCache.get(cacheKey) || null;
+    }
+
+    try {
+        // Create temporary item with minimal metadata for resolver lookup
+        const tempItem = new Zotero.Item('journalArticle');
+        tempItem.libraryID = Zotero.Libraries.userLibraryID;
+        if (title) tempItem.setField('title', title);
+        if (doi) tempItem.setField('DOI', doi);
+        if (url) tempItem.setField('url', url);
+        await tempItem.saveTx();
+
+        Zotero.debug(`[seerai] Zotero Find Full Text: Created temp item ${tempItem.id}`);
+
+        // Call Zotero's Find Full Text resolver
+        const attachment = await (Zotero.Attachments as any).addAvailablePDF(tempItem);
+
+        let pdfPath: string | null = null;
+        if (attachment && attachment.id) {
+            pdfPath = await attachment.getFilePathAsync();
+            Zotero.debug(`[seerai] Zotero Find Full Text: Found PDF at ${pdfPath}`);
+        }
+
+        // Delete temporary item (and its attachments)
+        await tempItem.eraseTx();
+        Zotero.debug(`[seerai] Zotero Find Full Text: Deleted temp item`);
+
+        zoteroFindPdfCache.set(cacheKey, pdfPath);
+        return pdfPath;
+    } catch (error) {
+        Zotero.debug(`[seerai] Zotero Find Full Text error: ${error}`);
+        zoteroFindPdfCache.set(cacheKey, null);
+        return null;
+    }
+}
+
 // Filter presets
 interface FilterPreset {
     name: string;
@@ -2288,6 +2343,9 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
                         } else if (buttonState === 'retry') {
                             Zotero.debug(`[seerai] Retry clicked for: ${paper.title.slice(0, 50)}...`);
                             // Clear caches for this paper so retry makes fresh API calls
+                            const zoteroCacheKey = paper.externalIds?.DOI || paper.externalIds?.ArXiv ||
+                                paper.externalIds?.PMID || paper.title?.slice(0, 50) || '';
+                            if (zoteroCacheKey) zoteroFindPdfCache.delete(zoteroCacheKey);
                             if (paper.externalIds?.DOI) {
                                 unpaywallService.clearCacheForDoi(paper.externalIds.DOI);
                             }
@@ -2308,14 +2366,35 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
             const runPdfDiscovery = async () => {
                 Zotero.debug(`[seerai] runPdfDiscovery started for: ${paper.title.slice(0, 50)}...`);
                 buttonState = 'searching';
-                pdfDiscoveryBtn.textContent = "🔎 Searching...";
+                pdfDiscoveryBtn.textContent = "📚 Zotero Lookup...";
                 pdfDiscoveryBtn.style.backgroundColor = "#e3f2fd";
                 pdfDiscoveryBtn.style.color = "#1976d2";
                 pdfDiscoveryBtn.style.border = "1px solid #90caf9";
                 pdfDiscoveryBtn.disabled = true;
 
                 try {
-                    // Step 1: Try Unpaywall if DOI available
+                    // Step 1: Try Zotero's Find Full Text resolver
+                    const zoteroResult = await findPdfViaZotero(
+                        paper.externalIds?.DOI,
+                        paper.externalIds?.ArXiv,
+                        paper.externalIds?.PMID,
+                        paper.title,
+                        paper.url
+                    );
+                    if (zoteroResult) {
+                        Zotero.debug(`[seerai] Zotero found PDF: ${zoteroResult}`);
+                        buttonState = 'pdf';
+                        pdfUrl = zoteroResult;
+                        pdfDiscoveryBtn.textContent = "📚 Zotero PDF";
+                        pdfDiscoveryBtn.style.backgroundColor = "#e8f5e9";
+                        pdfDiscoveryBtn.style.color = "#2e7d32";
+                        pdfDiscoveryBtn.style.border = "1px solid #a5d6a7";
+                        pdfDiscoveryBtn.disabled = false;
+                        return;
+                    }
+
+                    // Step 2: Try Unpaywall if DOI available
+                    pdfDiscoveryBtn.textContent = "🔎 Unpaywall...";
                     if (paper.externalIds?.DOI) {
                         Zotero.debug(`[seerai] Trying Unpaywall for DOI: ${paper.externalIds.DOI}`);
                         const unpaywallResult = await unpaywallService.getPdfUrl(paper.externalIds.DOI);
@@ -2333,7 +2412,7 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
                         }
                     }
 
-                    // Step 2: Try Firecrawl if configured
+                    // Step 3: Try Firecrawl if configured
                     /*
                     if (firecrawlService.isConfigured()) {
                         Zotero.debug(`[seerai] Trying Firecrawl for: ${paper.title.slice(0, 50)}...`);
