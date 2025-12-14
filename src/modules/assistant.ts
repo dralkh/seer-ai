@@ -357,6 +357,25 @@ async function findAndAttachPdfForItem(
     return false;
 }
 
+/**
+ * Get the canonical source URL for a paper based on available identifiers
+ * Priority: DOI > ArXiv > PMC > PMID > URL field
+ */
+function getSourceLinkForPaper(
+    doi?: string,
+    arxivId?: string,
+    pmid?: string,
+    pmcid?: string,
+    url?: string
+): string | null {
+    if (doi) return `https://doi.org/${doi}`;
+    if (arxivId) return `https://arxiv.org/${arxivId.replace(/^arxiv:/i, '')}`;
+    if (pmcid) return `https://pmc.ncbi.nlm.nih.gov/articles/${pmcid}/`;
+    if (pmid) return `https://pubmed.ncbi.nlm.nih.gov/${pmid}/`;
+    if (url) return url;
+    return null;
+}
+
 // Filter presets
 interface FilterPreset {
     name: string;
@@ -2562,9 +2581,10 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
             Zotero.debug(`[seerai] Creating PDF discovery button for paper: ${paper.title.slice(0, 50)}...`);
 
             // State to track what the button should do when clicked
-            let buttonState: 'searching' | 'retry' | 'pdf' | 'page' = 'searching';
+            let buttonState: 'searching' | 'retry' | 'pdf' | 'page' | 'source' = 'searching';
             let pdfUrl: string | null = null;
             let pageUrl: string | null = null;
+            let sourceUrl: string | null = null;
 
             const pdfDiscoveryBtn = ztoolkit.UI.createElement(doc, "button", {
                 properties: { innerText: "🔎 Find PDF" },
@@ -2579,6 +2599,15 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
                             Zotero.launchURL(pdfUrl);
                         } else if (buttonState === 'page' && pageUrl) {
                             Zotero.launchURL(pageUrl);
+                        } else if (buttonState === 'source' && sourceUrl) {
+                            // Open source link in browser
+                            Zotero.launchURL(sourceUrl);
+                            // Change to retry state after opening
+                            buttonState = 'retry';
+                            pdfDiscoveryBtn.textContent = "🔁 Retry";
+                            pdfDiscoveryBtn.style.backgroundColor = "#fafafa";
+                            pdfDiscoveryBtn.style.color = "#757575";
+                            pdfDiscoveryBtn.style.border = "1px solid #e0e0e0";
                         } else if (buttonState === 'retry') {
                             Zotero.debug(`[seerai] Retry clicked for: ${paper.title.slice(0, 50)}...`);
                             // Clear caches for this paper so retry makes fresh API calls
@@ -2758,14 +2787,32 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
                     }
                     */
 
-                    // All methods failed - show Retry button
-                    Zotero.debug(`[seerai] All methods failed, showing Retry button`);
-                    buttonState = 'retry';
-                    pdfDiscoveryBtn.textContent = "🔁 Retry";
-                    pdfDiscoveryBtn.style.backgroundColor = "#fafafa";
-                    pdfDiscoveryBtn.style.color = "#757575";
-                    pdfDiscoveryBtn.style.border = "1px solid #e0e0e0";
-                    pdfDiscoveryBtn.disabled = false;
+                    // Step 7: Show Source-Link if identifiers available, otherwise Retry
+                    Zotero.debug(`[seerai] All methods failed, checking for source link`);
+                    const sourceLink = getSourceLinkForPaper(
+                        paper.externalIds?.DOI,
+                        paper.externalIds?.ArXiv,
+                        paper.externalIds?.PMID,
+                        undefined,
+                        paper.url
+                    );
+
+                    if (sourceLink) {
+                        buttonState = 'source';
+                        sourceUrl = sourceLink;
+                        pdfDiscoveryBtn.textContent = "🔗 Source-Link";
+                        pdfDiscoveryBtn.style.backgroundColor = "#e8eaf6";
+                        pdfDiscoveryBtn.style.color = "#3f51b5";
+                        pdfDiscoveryBtn.style.border = "1px solid #9fa8da";
+                        pdfDiscoveryBtn.disabled = false;
+                    } else {
+                        buttonState = 'retry';
+                        pdfDiscoveryBtn.textContent = "🔁 Retry";
+                        pdfDiscoveryBtn.style.backgroundColor = "#fafafa";
+                        pdfDiscoveryBtn.style.color = "#757575";
+                        pdfDiscoveryBtn.style.border = "1px solid #e0e0e0";
+                        pdfDiscoveryBtn.disabled = false;
+                    }
 
                 } catch (error) {
                     Zotero.debug(`[seerai] PDF discovery error for ${paper.paperId}: ${error}`);
@@ -6245,11 +6292,36 @@ Task: ${columnPrompt}`;
                                     td.innerHTML = `<span style="color: var(--highlight-primary); font-size: 11px;">📄 Process PDF</span>`;
                                     td.style.cursor = "pointer";
                                 } else {
-                                    td.innerHTML = `<span style="color: var(--text-tertiary); font-size: 11px; font-style: italic;">❌ Not found</span>`;
-                                    td.style.cursor = "pointer";
+                                    // Step 7: Show Source-Link if identifiers available
+                                    const doi = item.getField('DOI') as string || undefined;
+                                    const arxivId = extractArxivFromItem(item);
+                                    const pmid = extractPmidFromItem(item);
+                                    const itemUrl = item.getField('url') as string || undefined;
+                                    const sourceLink = getSourceLinkForPaper(doi, arxivId, pmid, undefined, itemUrl);
+
+                                    if (sourceLink) {
+                                        td.innerHTML = `<span class="source-link-btn" data-url="${sourceLink}" style="color: var(--highlight-primary); font-size: 11px; cursor: pointer;">🔗 Source-Link</span>`;
+                                        td.style.cursor = "pointer";
+                                    } else {
+                                        td.innerHTML = `<span style="color: var(--text-tertiary); font-size: 11px; font-style: italic;">❌ Not found</span>`;
+                                        td.style.cursor = "pointer";
+                                    }
                                 }
                             } catch (err) {
                                 td.innerHTML = `<span style="color: #c62828; font-size: 11px;">Error</span>`;
+                                td.style.cursor = "pointer";
+                            }
+                            return;
+                        }
+
+                        // Handle Source-Link click
+                        const sourceLinkBtn = td.querySelector('.source-link-btn');
+                        if (sourceLinkBtn && item) {
+                            const linkUrl = sourceLinkBtn.getAttribute('data-url');
+                            if (linkUrl) {
+                                Zotero.launchURL(linkUrl);
+                                // Change to retry button
+                                td.innerHTML = `<span class="search-pdf-btn" style="color: var(--highlight-primary); font-size: 11px; cursor: pointer;">🔁 Retry</span>`;
                                 td.style.cursor = "pointer";
                             }
                             return;
