@@ -413,6 +413,91 @@ function getNextPresetName(): string {
     return `Preset ${num}`;
 }
 
+// ==================== Search History (File-based Persistence) ====================
+
+interface SearchHistoryEntry {
+    id: string;
+    query: string;
+    state: SearchState;
+    results: SemanticScholarPaper[];
+    totalResults: number;
+    searchToken: string | null;
+    savedAt: string;
+}
+
+const SEARCH_HISTORY_MAX_ENTRIES = 20;
+let searchHistoryDataDir: string | null = null;
+let searchHistoryFilePath: string | null = null;
+
+function getSearchHistoryFilePath(): string {
+    if (!searchHistoryFilePath) {
+        searchHistoryDataDir = PathUtils.join(Zotero.DataDirectory.dir, config.addonRef);
+        searchHistoryFilePath = PathUtils.join(searchHistoryDataDir, "search_history.json");
+    }
+    return searchHistoryFilePath;
+}
+
+async function ensureSearchHistoryDir(): Promise<void> {
+    const dataDir = PathUtils.join(Zotero.DataDirectory.dir, config.addonRef);
+    if (!(await IOUtils.exists(dataDir))) {
+        await IOUtils.makeDirectory(dataDir, { ignoreExisting: true });
+    }
+}
+
+async function getSearchHistory(): Promise<SearchHistoryEntry[]> {
+    try {
+        await ensureSearchHistoryDir();
+        const filePath = getSearchHistoryFilePath();
+
+        if (!(await IOUtils.exists(filePath))) {
+            return [];
+        }
+
+        const contentBytes = await IOUtils.read(filePath);
+        const content = new TextDecoder().decode(contentBytes);
+        if (!content) return [];
+
+        return JSON.parse(content) as SearchHistoryEntry[];
+    } catch (e) {
+        Zotero.debug(`[seerai] Error loading search history: ${e}`);
+        return [];
+    }
+}
+
+async function saveSearchHistory(entries: SearchHistoryEntry[]): Promise<void> {
+    try {
+        await ensureSearchHistoryDir();
+        const filePath = getSearchHistoryFilePath();
+        const encoder = new TextEncoder();
+        await IOUtils.write(filePath, encoder.encode(JSON.stringify(entries, null, 2)));
+    } catch (e) {
+        Zotero.debug(`[seerai] Error saving search history: ${e}`);
+    }
+}
+
+async function addSearchHistoryEntry(entry: SearchHistoryEntry): Promise<void> {
+    const history = await getSearchHistory();
+
+    // Remove any existing entry with the same query (avoid duplicates)
+    const filtered = history.filter(h => h.query.toLowerCase() !== entry.query.toLowerCase());
+
+    // Add new entry at the beginning
+    filtered.unshift(entry);
+
+    // Keep only max entries
+    const trimmed = filtered.slice(0, SEARCH_HISTORY_MAX_ENTRIES);
+
+    await saveSearchHistory(trimmed);
+    Zotero.debug(`[seerai] Added search history entry: "${entry.query}" (${entry.results.length} results)`);
+}
+
+async function deleteSearchHistoryEntry(id: string): Promise<void> {
+    const history = await getSearchHistory();
+    const filtered = history.filter(h => h.id !== id);
+    await saveSearchHistory(filtered);
+    Zotero.debug(`[seerai] Deleted search history entry: ${id}`);
+}
+
 // DataLabs service for PDF-to-note conversion
 const ocrService = new OcrService();
 
@@ -518,6 +603,55 @@ export class Assistant {
     private static stripHtml(html: string): string {
         const temp = new DOMParser().parseFromString(html, "text/html");
         return temp.body?.textContent || "";
+    }
+
+    /**
+     * Format a date as relative time (e.g., "2 hours ago", "Yesterday")
+     */
+    private static formatRelativeTime(date: Date): string {
+        const now = new Date();
+        const diffMs = now.getTime() - date.getTime();
+        const diffSecs = Math.floor(diffMs / 1000);
+        const diffMins = Math.floor(diffSecs / 60);
+        const diffHours = Math.floor(diffMins / 60);
+        const diffDays = Math.floor(diffHours / 24);
+
+        if (diffSecs < 60) return "Just now";
+        if (diffMins < 60) return `${diffMins}m ago`;
+        if (diffHours < 24) return `${diffHours}h ago`;
+        if (diffDays === 1) return "Yesterday";
+        if (diffDays < 7) return `${diffDays}d ago`;
+        return date.toLocaleDateString();
+    }
+
+    /**
+     * Restore search state from a history entry
+     */
+    private static restoreSearchFromHistory(entry: SearchHistoryEntry, doc: Document, searchInput: HTMLInputElement): void {
+        // Restore state
+        currentSearchState = { ...entry.state };
+        currentSearchResults = [...entry.results];
+        totalSearchResults = entry.totalResults;
+        currentSearchToken = entry.searchToken;
+
+        // Update search input
+        searchInput.value = entry.query;
+
+        // Re-render filters (requires rebuilding the filters UI)
+        const filtersContainer = doc.querySelector(".search-filters-container");
+        if (filtersContainer && filtersContainer.parentElement) {
+            const parent = filtersContainer.parentElement;
+            const newFilters = this.createSearchFilters(doc);
+            filtersContainer.replaceWith(newFilters);
+        }
+
+        // Re-render results
+        const resultsArea = doc.getElementById("semantic-scholar-results");
+        if (resultsArea && currentItem) {
+            this.renderSearchResults(doc, resultsArea as HTMLElement, currentItem);
+        }
+
+        Zotero.debug(`[seerai] Restored search from history: "${entry.query}" (${entry.results.length} results)`);
     }
 
     /**
@@ -1335,15 +1469,192 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
             }
         });
 
+        // === PAST SEARCHES BUTTON AND DROPDOWN ===
+        const pastSearchesBtn = ztoolkit.UI.createElement(doc, "button", {
+            properties: { innerText: "📜", title: "Past Searches" },
+            styles: {
+                padding: "8px 10px",
+                backgroundColor: "var(--background-secondary)",
+                color: "var(--text-primary)",
+                border: "1px solid var(--border-primary)",
+                borderRadius: "6px",
+                fontSize: "14px",
+                cursor: "pointer",
+                marginLeft: "4px"
+            }
+        });
+
+        const pastSearchesDropdown = ztoolkit.UI.createElement(doc, "div", {
+            properties: { id: "past-searches-dropdown" },
+            styles: {
+                display: "none",
+                position: "absolute",
+                top: "100%",
+                left: "0",
+                right: "0",
+                marginTop: "4px",
+                backgroundColor: "var(--background-primary)",
+                border: "1px solid var(--border-primary)",
+                borderRadius: "6px",
+                boxShadow: "0 4px 16px rgba(0,0,0,0.15)",
+                zIndex: "9999",
+                maxHeight: "350px",
+                overflowY: "auto"
+            }
+        });
+
+        // Close dropdown when clicking outside
+        doc.addEventListener("click", (e: Event) => {
+            if (!pastSearchesDropdown.contains(e.target as Node) && e.target !== pastSearchesBtn) {
+                pastSearchesDropdown.style.display = "none";
+            }
+        });
+
+        // Past Searches button click handler
+        pastSearchesBtn.addEventListener("click", async () => {
+            if (pastSearchesDropdown.style.display === "block") {
+                pastSearchesDropdown.style.display = "none";
+                return;
+            }
+
+            pastSearchesDropdown.innerHTML = "";
+            const history = await getSearchHistory();
+
+            if (history.length === 0) {
+                const emptyMsg = ztoolkit.UI.createElement(doc, "div", {
+                    styles: {
+                        padding: "24px",
+                        textAlign: "center",
+                        color: "var(--text-secondary)",
+                        fontSize: "12px"
+                    }
+                });
+                emptyMsg.innerHTML = "📭 No past searches yet<br><br>Your search history will appear here after you perform searches.";
+                pastSearchesDropdown.appendChild(emptyMsg);
+            } else {
+                // Header
+                const header = ztoolkit.UI.createElement(doc, "div", {
+                    styles: {
+                        padding: "10px 12px",
+                        fontSize: "11px",
+                        fontWeight: "600",
+                        color: "var(--text-secondary)",
+                        borderBottom: "1px solid var(--border-primary)",
+                        backgroundColor: "var(--background-secondary)"
+                    }
+                });
+                header.innerHTML = `📜 ${history.length} Past Searches`;
+                pastSearchesDropdown.appendChild(header);
+
+                // History entries
+                history.forEach(entry => {
+                    const item = ztoolkit.UI.createElement(doc, "div", {
+                        styles: {
+                            padding: "10px 12px",
+                            borderBottom: "1px solid var(--border-primary)",
+                            cursor: "pointer",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "8px"
+                        }
+                    });
+
+                    // Entry content
+                    const content = ztoolkit.UI.createElement(doc, "div", {
+                        styles: { flex: "1", minWidth: "0" }
+                    });
+
+                    // Query (truncated)
+                    const queryEl = ztoolkit.UI.createElement(doc, "div", {
+                        styles: {
+                            fontSize: "12px",
+                            fontWeight: "500",
+                            color: "var(--text-primary)",
+                            whiteSpace: "nowrap",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis"
+                        }
+                    });
+                    queryEl.innerText = entry.query.length > 50 ? entry.query.slice(0, 50) + "..." : entry.query;
+                    content.appendChild(queryEl);
+
+                    // Meta info
+                    const metaEl = ztoolkit.UI.createElement(doc, "div", {
+                        styles: {
+                            fontSize: "10px",
+                            color: "var(--text-secondary)",
+                            marginTop: "2px"
+                        }
+                    });
+                    const savedDate = new Date(entry.savedAt);
+                    const dateStr = this.formatRelativeTime(savedDate);
+                    metaEl.innerText = `${entry.results.length} results • ${dateStr}`;
+                    content.appendChild(metaEl);
+
+                    item.appendChild(content);
+
+                    // Delete button
+                    const deleteBtn = ztoolkit.UI.createElement(doc, "button", {
+                        properties: { innerText: "🗑️", title: "Delete this search" },
+                        styles: {
+                            padding: "4px 6px",
+                            backgroundColor: "transparent",
+                            color: "var(--text-secondary)",
+                            border: "none",
+                            borderRadius: "4px",
+                            fontSize: "12px",
+                            cursor: "pointer",
+                            opacity: "0.6"
+                        }
+                    });
+                    deleteBtn.addEventListener("mouseenter", () => { deleteBtn.style.opacity = "1"; deleteBtn.style.backgroundColor = "#ffebee"; });
+                    deleteBtn.addEventListener("mouseleave", () => { deleteBtn.style.opacity = "0.6"; deleteBtn.style.backgroundColor = "transparent"; });
+                    deleteBtn.addEventListener("click", async (e) => {
+                        e.stopPropagation();
+                        await deleteSearchHistoryEntry(entry.id);
+                        item.remove();
+                        // Update header count
+                        const newHistory = await getSearchHistory();
+                        if (newHistory.length === 0) {
+                            pastSearchesDropdown.innerHTML = "";
+                            const emptyMsg = ztoolkit.UI.createElement(doc, "div", {
+                                styles: { padding: "24px", textAlign: "center", color: "var(--text-secondary)", fontSize: "12px" }
+                            });
+                            emptyMsg.innerHTML = "📭 No past searches";
+                            pastSearchesDropdown.appendChild(emptyMsg);
+                        } else {
+                            const headerEl = pastSearchesDropdown.querySelector("div:first-child");
+                            if (headerEl) headerEl.innerHTML = `📜 ${newHistory.length} Past Searches`;
+                        }
+                    });
+                    item.appendChild(deleteBtn);
+
+                    // Click to restore
+                    item.addEventListener("mouseenter", () => { item.style.backgroundColor = "var(--background-secondary)"; });
+                    item.addEventListener("mouseleave", () => { item.style.backgroundColor = "transparent"; });
+                    item.addEventListener("click", () => {
+                        this.restoreSearchFromHistory(entry, doc, searchInput);
+                        pastSearchesDropdown.style.display = "none";
+                    });
+
+                    pastSearchesDropdown.appendChild(item);
+                });
+            }
+
+            pastSearchesDropdown.style.display = "block";
+        });
+
         // Make input container relative for dropdown positioning
         searchInputContainer.style.position = "relative";
         searchInputContainer.appendChild(searchInput);
         searchInputContainer.appendChild(suggestionsBtn);
         searchInputContainer.appendChild(aiRefineBtn);
+        searchInputContainer.appendChild(pastSearchesBtn);
         searchInputContainer.appendChild(syntaxHelp);
         searchInputContainer.appendChild(searchBtn);
         searchInputContainer.appendChild(suggestionsDropdown);
         searchInputContainer.appendChild(aiRefineDropdown);
+        searchInputContainer.appendChild(pastSearchesDropdown);
 
         // === FILTERS (shown first) ===
         const filtersContainer = this.createSearchFilters(doc);
@@ -2050,6 +2361,19 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
             // Otherwise, just append the new cards
             if (previousCount === 0) {
                 this.renderSearchResults(doc, resultsArea as HTMLElement, currentItem!);
+
+                // Auto-save to search history (only for fresh searches with results)
+                if (currentSearchResults.length > 0) {
+                    addSearchHistoryEntry({
+                        id: `search_${Date.now()}`,
+                        query: currentSearchState.query,
+                        state: { ...currentSearchState },
+                        results: [...currentSearchResults],
+                        totalResults: totalSearchResults,
+                        searchToken: currentSearchToken,
+                        savedAt: new Date().toISOString()
+                    });
+                }
             } else {
                 // Append new cards without clearing existing content
                 this.appendSearchCards(doc, resultsArea as HTMLElement, papers, currentItem!);
