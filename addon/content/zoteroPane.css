@@ -161,12 +161,18 @@ html.dark {
   border-color: #03a9f4;
 }
 
+.chip-tables {
+  background-color: #f3e5f5;
+  border-color: #7b1fa2;
+}
+
 /* Dark mode chip overrides (Class/Attribute) */
 body.dark .chip-items,
 :root[data-theme='dark'] .chip-items,
 html.dark .chip-items {
   background-color: #0d47a1;
   border-color: #4dabf5;
+  color: #fff;
 }
 
 body.dark .chip-creators,
@@ -174,6 +180,7 @@ body.dark .chip-creators,
 html.dark .chip-creators {
   background-color: #4a148c;
   border-color: #ab47bc;
+  color: #fff;
 }
 
 body.dark .chip-tags,
@@ -181,6 +188,7 @@ body.dark .chip-tags,
 html.dark .chip-tags {
   background-color: #6d4d00;
   border-color: #ffc94d;
+  color: #fff;
 }
 
 body.dark .chip-collections,
@@ -188,6 +196,7 @@ body.dark .chip-collections,
 html.dark .chip-collections {
   background-color: #1b5e20;
   border-color: #66bb6a;
+  color: #fff;
 }
 
 body.dark .chip-notes,
@@ -211,6 +220,7 @@ body.dark .chip-attachments,
 html.dark .chip-attachments {
   background-color: #880e4f;
   border-color: #f06292;
+  color: #fff;
 }
 
 body.dark .chip-images,
@@ -218,9 +228,73 @@ body.dark .chip-images,
 html.dark .chip-images {
   background-color: #01579b;
   border-color: #4fc3f7;
+  color: #fff;
 }
 
+body.dark .chip-tables,
+:root[data-theme='dark'] .chip-tables,
+html.dark .chip-tables {
+  background-color: #4a148c;
+  border-color: #ab47bc;
+  color: #fff;
+}
 
+/* Dark mode chip overrides - media query fallback for sidebar panels */
+@media (prefers-color-scheme: dark) {
+  .chip-items {
+    background-color: #0d47a1;
+    border-color: #4dabf5;
+    color: #fff;
+  }
+
+  .chip-creators {
+    background-color: #4a148c;
+    border-color: #ab47bc;
+    color: #fff;
+  }
+
+  .chip-tags {
+    background-color: #6d4d00;
+    border-color: #ffc94d;
+    color: #fff;
+  }
+
+  .chip-collections {
+    background-color: #1b5e20;
+    border-color: #66bb6a;
+    color: #fff;
+  }
+
+  .chip-notes {
+    background-color: #fff59d;
+    border-color: #ffc107;
+    color: #000;
+  }
+
+  .chip-notes-summary {
+    background-color: #fff59d;
+    border: 1px solid #ffc107;
+    color: #000;
+  }
+
+  .chip-attachments {
+    background-color: #880e4f;
+    border-color: #f06292;
+    color: #fff;
+  }
+
+  .chip-images {
+    background-color: #01579b;
+    border-color: #4fc3f7;
+    color: #fff;
+  }
+
+  .chip-tables {
+    background-color: #4a148c;
+    border-color: #ab47bc;
+    color: #fff;
+  }
+}
 
 .message-user {
 

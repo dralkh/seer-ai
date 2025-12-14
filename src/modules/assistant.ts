@@ -391,7 +391,89 @@ function getSourceLinkForPaper(
     return null;
 }
 
-// Filter presets
+/**
+ * Get PDF text for a Zotero item, auto-indexing if needed.
+ * Uses Zotero 7 APIs: item.attachmentText, Zotero.FullText.indexItems()
+ * 
+ * Priority:
+ * 1. Check for notes with matching title → use note content
+ * 2. Try indexed PDF text → use attachmentText
+ * 3. Auto-index unindexed PDF → then use text
+ * 4. Return null if all fail (image-only PDF)
+ * 
+ * @param item - The parent Zotero item (regular item, not attachment)
+ * @param maxLength - Maximum text length to return (default 15000)
+ * @param autoIndex - Whether to auto-index unindexed PDFs (default true)
+ * @param checkNotesFirst - Whether to check for notes first (default true)
+ * @returns PDF text, note content, or null if not available
+ */
+async function getPdfTextForItem(
+    item: Zotero.Item,
+    maxLength: number = 15000,
+    autoIndex: boolean = true,
+    checkNotesFirst: boolean = true
+): Promise<string | null> {
+    // Check for existing notes with matching title first
+    if (checkNotesFirst && ocrService.hasExistingNote(item)) {
+        const noteIds = item.getNotes();
+        for (const noteId of noteIds) {
+            const note = Zotero.Items.get(noteId);
+            if (note) {
+                const noteHTML = note.getNote();
+                // Strip HTML tags to get plain text
+                const plainText = noteHTML.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+                if (plainText.length > 0) {
+                    Zotero.debug(`[seerai] Using existing note content for item ${item.id}`);
+                    return maxLength > 0 ? plainText.substring(0, maxLength) : plainText;
+                }
+            }
+        }
+    }
+
+    // Try PDF attachments
+    const attachmentIds = item.getAttachments();
+
+    for (const attId of attachmentIds) {
+        const att = Zotero.Items.get(attId);
+        if (!att || att.attachmentContentType !== 'application/pdf') continue;
+
+        try {
+            // Try Zotero 7 high-level API first (item.attachmentText is async getter)
+            let text = await (att as any).attachmentText;
+
+            if (text && text.length > 0) {
+                Zotero.debug(`[seerai] Got indexed PDF text for attachment ${attId} (${text.length} chars)`);
+                return maxLength > 0 ? text.substring(0, maxLength) : text;
+            }
+
+            // Not indexed - try to index if autoIndex enabled
+            if (autoIndex) {
+                Zotero.debug(`[seerai] PDF not indexed, triggering indexing for attachment ${attId}`);
+
+                // Ensure DB is ready before indexing
+                await att.saveTx();
+
+                // Call the asynchronous indexer
+                await (Zotero.FullText as any).indexItems([attId]);
+
+                // Retry after indexing
+                text = await (att as any).attachmentText;
+                if (text && text.length > 0) {
+                    Zotero.debug(`[seerai] Indexing complete, got ${text.length} chars`);
+                    return maxLength > 0 ? text.substring(0, maxLength) : text;
+                }
+
+                // If still empty after indexing, it's likely an image-only PDF
+                Zotero.debug(`[seerai] No text after indexing - likely image-only PDF`);
+            }
+        } catch (e) {
+            Zotero.debug(`[seerai] Error getting PDF text for attachment ${attId}: ${e}`);
+        }
+    }
+
+    return null;
+}
+
 interface FilterPreset {
     name: string;
     filters: SearchState;
@@ -1102,10 +1184,10 @@ export class Assistant {
             return btn;
         };
 
-        // 1. (+) Add Column - opens quick add dropdown
-        const addColumnBtn = createSideBtn("➕", "Add Analysis Column", (e) => {
+        // 1. (+) Add Column - immediately adds a new column with inline editing
+        const addColumnBtn = createSideBtn("➕", "Add Analysis Column", async (e) => {
             e.stopPropagation();
-            this.showQuickAddColumnDropdown(doc, addColumnBtn);
+            await this.addImmediateTableColumn(doc, item, container);
         });
         sideStrip.appendChild(addColumnBtn);
 
@@ -6057,7 +6139,7 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
                             fullText = await (Zotero.Fulltext as any).getTextForItem(att.id) || "";
                         }
                         if (fullText) {
-                            pdfText += fullText.substring(0, 15000); // Limit context size
+                            pdfText += fullText; // Use full context - no limit
                             break;
                         }
                     } catch (e) {
@@ -6148,7 +6230,7 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
         const userPrompt = `Paper: "${paperTitle}"
 
 Source content:
-${sourceText.substring(0, 10000)}
+${sourceText}
 
 Task: ${columnPrompt}`;
 
@@ -6485,33 +6567,34 @@ Task: ${columnPrompt}`;
     }
 
     /**
-     * Generate content from PDF using DataLabs (processes PDF to create note first)
+     * Generate content from PDF using indexed text or DataLabs OCR as fallback
+     * Priority: Notes → Indexed PDF text → OCR extraction
      */
     private static async generateFromPDF(item: Zotero.Item, col: TableColumn): Promise<string> {
-        // Check if there's already a note we can use
-        const existingNoteIds = item.getNotes();
-        if (existingNoteIds.length > 0) {
-            // Use existing notes
-            return this.generateColumnContent(item, col, existingNoteIds);
+        // Check if there's already a note with matching title (prioritize OCR notes)
+        if (ocrService.hasExistingNote(item)) {
+            const noteIds = item.getNotes();
+            if (noteIds.length > 0) {
+                Zotero.debug(`[seerai] Using existing note for item ${item.id}`);
+                return this.generateColumnContent(item, col, noteIds);
+            }
         }
 
-        // No notes - need to process PDF with DataLabs first
+        // Try indexed PDF text (auto-indexes if needed, skips note check since we already did it)
+        const pdfText = await getPdfTextForItem(item, 0, true, false);
+        if (pdfText) {
+            Zotero.debug(`[seerai] Using indexed PDF text for generation (${pdfText.length} chars)`);
+            return this.generateColumnContentFromText(item, col, pdfText);
+        }
+
+        // PDF not available or image-only - need OCR via DataLabs
         const pdf = ocrService.getFirstPdfAttachment(item);
         if (!pdf) {
             throw new Error("No PDF attachment found");
         }
 
-        // Check if DataLabs already processed this (note with same title as parent)
-        if (ocrService.hasExistingNote(item)) {
-            // Note exists but wasn't in noteIds? Refresh and try again
-            const refreshedNoteIds = item.getNotes();
-            if (refreshedNoteIds.length > 0) {
-                return this.generateColumnContent(item, col, refreshedNoteIds);
-            }
-        }
-
         // Process PDF with DataLabs - this creates a note
-        Zotero.debug("[seerai] Processing PDF with OCR...");
+        Zotero.debug("[seerai] Image-only PDF, processing with OCR...");
         await ocrService.convertToMarkdown(pdf);
 
         // Wait a moment for the note to be saved
@@ -6528,6 +6611,7 @@ Task: ${columnPrompt}`;
         // Now generate content using the new notes
         return this.generateColumnContent(item, col, newNoteIds);
     }
+
 
     /**
      * Save current workspace to history
@@ -7367,11 +7451,12 @@ Task: ${columnPrompt}`;
 
         // Add other column headers (computed/custom columns)
         otherColumns.forEach(col => {
+            const isComputedColumn = col.type === 'computed';
             const th = ztoolkit.UI.createElement(doc, "th", {
                 properties: {
-                    innerText: col.name,
                     className: `${col.sortable ? 'sortable' : ''} ${currentTableConfig?.sortBy === col.id ? `sort-${currentTableConfig.sortOrder}` : ''}`
                 },
+                attributes: isComputedColumn ? { 'data-column-id': col.id } : {},
                 styles: {
                     position: "relative",
                     top: "0",
@@ -7383,15 +7468,64 @@ Task: ${columnPrompt}`;
                     fontWeight: "600",
                     width: `${col.width}px`,
                     minWidth: `${col.minWidth}px`,
-                    cursor: col.sortable ? "pointer" : "default",
+                    cursor: isComputedColumn ? "pointer" : (col.sortable ? "pointer" : "default"),
                     userSelect: "none",
                     whiteSpace: "nowrap",
                     overflow: "hidden",
                     textOverflow: "ellipsis"
-                },
-                listeners: col.sortable ? [{
-                    type: "click",
-                    listener: async () => {
+                }
+            });
+
+            // For computed columns, wrap content with edit capability
+            if (isComputedColumn) {
+                const headerContent = ztoolkit.UI.createElement(doc, "div", {
+                    styles: {
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        gap: "4px",
+                        width: "100%"
+                    }
+                });
+
+                const nameSpan = ztoolkit.UI.createElement(doc, "span", {
+                    properties: { innerText: col.name, className: "column-header-text" },
+                    attributes: { title: col.aiPrompt || "" },
+                    styles: {
+                        flex: "1",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis"
+                    }
+                });
+                headerContent.appendChild(nameSpan);
+
+                // Edit icon (pencil)
+                const editIcon = ztoolkit.UI.createElement(doc, "span", {
+                    properties: { innerHTML: "✎" },
+                    styles: { fontSize: "11px", opacity: "0.4" }
+                });
+                headerContent.appendChild(editIcon);
+
+                // Hover effect
+                th.addEventListener("mouseenter", () => editIcon.style.opacity = "1");
+                th.addEventListener("mouseleave", () => editIcon.style.opacity = "0.4");
+
+                // Click to edit
+                th.addEventListener("click", (e: Event) => {
+                    e.stopPropagation();
+                    if (currentItem) {
+                        this.showTableColumnEditPopover(doc, th, col, currentItem, currentContainer!);
+                    }
+                });
+
+                th.appendChild(headerContent);
+            } else {
+                // Non-computed columns just show text
+                th.innerText = col.name;
+
+                // Sorting for sortable columns
+                if (col.sortable) {
+                    th.addEventListener("click", async () => {
                         if (currentTableConfig) {
                             if (currentTableConfig.sortBy === col.id) {
                                 currentTableConfig.sortOrder = currentTableConfig.sortOrder === 'asc' ? 'desc' : 'asc';
@@ -7405,9 +7539,9 @@ Task: ${columnPrompt}`;
                                 this.renderInterface(currentContainer, currentItem);
                             }
                         }
-                    }
-                }] : []
-            });
+                    });
+                }
+            }
 
             // Add resize handle if resizable
             if (col.resizable) {
@@ -7627,7 +7761,14 @@ Task: ${columnPrompt}`;
                     if (hasNotes) {
                         td.innerHTML = `<span style="color: var(--highlight-primary); font-size: 11px;">⚡ Generate</span>`;
                     } else if (hasPDFForIndicator) {
-                        td.innerHTML = `<span style="color: var(--highlight-primary); font-size: 11px;">📄 Process PDF</span>`;
+                        // Show both options: Generate (uses indexed PDF text) and OCR (creates refined notes)
+                        td.innerHTML = `<span style="font-size: 11px;">
+                            <span class="generate-indexed-btn" style="color: var(--highlight-primary); cursor: pointer;">⚡ Generate</span>
+                            <span style="margin: 0 4px; color: var(--text-tertiary);">|</span>
+                            <span class="process-pdf-btn" style="color: var(--text-secondary); cursor: pointer;">📄 OCR</span>
+                        </span>`;
+                        td.title = "Generate: uses PDF text | OCR: extracts refined notes";
+
                     } else {
                         // Check if paper has identifiers for PDF search
                         const hasDoi = !!(itemForIndicator?.getField('DOI'));
@@ -7679,6 +7820,72 @@ Task: ${columnPrompt}`;
                                 } catch (e) {
                                     td.innerHTML = `<span style="color: #c62828; font-size: 11px;">Attach failed</span>`;
                                 }
+                            }
+                            return;
+                        }
+
+                        // Handle Generate from indexed PDF click
+                        const generateIndexedBtn = td.querySelector('.generate-indexed-btn');
+                        if (generateIndexedBtn && item) {
+                            td.innerHTML = `<span style="color: var(--text-tertiary); font-size: 11px;">⏳ Generating...</span>`;
+                            td.style.cursor = "wait";
+                            try {
+                                // Use generateFromPDF which now uses indexed text first
+                                const content = await this.generateFromPDF(item, col);
+                                row.data[col.id] = content;
+                                td.innerHTML = content ? parseMarkdown(content) : '<span style="color: var(--text-tertiary); font-size: 11px;">(Empty)</span>';
+                                td.style.cursor = "pointer";
+
+                                if (currentTableConfig) {
+                                    if (!currentTableConfig.generatedData) currentTableConfig.generatedData = {};
+                                    if (!currentTableConfig.generatedData[row.paperId]) currentTableConfig.generatedData[row.paperId] = {};
+                                    currentTableConfig.generatedData[row.paperId][col.id] = content;
+                                    const tableStore = getTableStore();
+                                    await tableStore.saveConfig(currentTableConfig);
+                                }
+                            } catch (err) {
+                                td.innerHTML = `<span style="color: #c62828; font-size: 11px;">Error: ${err}</span>`;
+                                td.style.cursor = "pointer";
+                            }
+                            return;
+                        }
+
+                        // Handle OCR (Process PDF with DataLabs) click
+                        const processPdfBtn = td.querySelector('.process-pdf-btn');
+                        if (processPdfBtn && item) {
+                            const pdf = ocrService.getFirstPdfAttachment(item);
+                            if (!pdf) {
+                                td.innerHTML = `<span style="color: #c62828; font-size: 11px;">No PDF found</span>`;
+                                return;
+                            }
+                            td.innerHTML = `<span style="color: var(--text-tertiary); font-size: 11px;">📄 OCR Processing...</span>`;
+                            td.style.cursor = "wait";
+                            try {
+                                await ocrService.convertToMarkdown(pdf);
+                                await new Promise(r => setTimeout(r, 500));
+
+                                // Now generate content using the new notes
+                                const newNoteIds = item.getNotes();
+                                if (newNoteIds.length > 0) {
+                                    const content = await this.generateColumnContent(item, col, newNoteIds);
+                                    row.data[col.id] = content;
+                                    td.innerHTML = content ? parseMarkdown(content) : '<span style="color: var(--text-tertiary); font-size: 11px;">(Empty)</span>';
+                                    td.style.cursor = "pointer";
+
+                                    if (currentTableConfig) {
+                                        if (!currentTableConfig.generatedData) currentTableConfig.generatedData = {};
+                                        if (!currentTableConfig.generatedData[row.paperId]) currentTableConfig.generatedData[row.paperId] = {};
+                                        currentTableConfig.generatedData[row.paperId][col.id] = content;
+                                        const tableStore = getTableStore();
+                                        await tableStore.saveConfig(currentTableConfig);
+                                    }
+                                } else {
+                                    td.innerHTML = `<span style="color: #ff9800; font-size: 11px;">OCR done, no note created</span>`;
+                                }
+                            } catch (err) {
+                                td.innerHTML = `<span style="color: #c62828; font-size: 11px;">OCR Error</span>`;
+                                td.title = String(err);
+                                td.style.cursor = "pointer";
                             }
                             return;
                         }
@@ -8654,6 +8861,275 @@ Task: ${columnPrompt}`;
         setTimeout(() => {
             doc.addEventListener('click', handleClickOutside);
         }, 150);
+    }
+
+    /**
+     * Immediately add a new table column and open inline editor
+     */
+    private static async addImmediateTableColumn(
+        doc: Document,
+        item: Zotero.Item,
+        container: HTMLElement
+    ): Promise<void> {
+        if (!currentTableConfig) return;
+
+        const newColumn: TableColumn = {
+            id: `custom_${Date.now()}`,
+            name: "New Column",
+            width: 150,
+            minWidth: 80,
+            visible: true,
+            sortable: false,
+            resizable: true,
+            type: 'computed',
+            aiPrompt: "Describe what information to extract from this paper..."
+        };
+
+        currentTableConfig.columns.push(newColumn);
+        const tableStore = getTableStore();
+        await tableStore.saveConfig(currentTableConfig);
+
+        // Re-render the interface
+        if (currentContainer && currentItem) {
+            this.renderInterface(currentContainer, currentItem);
+
+            // After render, find the new column header and open editor
+            setTimeout(() => {
+                const headerCells = doc.querySelectorAll('th[data-column-id]');
+                const newColHeader = (Array.from(headerCells) as HTMLElement[]).find(
+                    th => th.getAttribute('data-column-id') === newColumn.id
+                );
+
+                if (newColHeader) {
+                    this.showTableColumnEditPopover(doc, newColHeader, newColumn, item, container);
+                }
+            }, 100);
+        }
+    }
+
+    /**
+     * Show inline editor popover for a table column header
+     * Auto-saves changes on input blur/change
+     */
+    private static showTableColumnEditPopover(
+        doc: Document,
+        anchorEl: HTMLElement,
+        column: TableColumn,
+        item: Zotero.Item,
+        container: HTMLElement
+    ): void {
+        // Remove any existing popover
+        const existing = doc.getElementById('table-column-editor-popover');
+        if (existing) existing.remove();
+        const existingBackdrop = doc.getElementById('table-column-editor-backdrop');
+        if (existingBackdrop) existingBackdrop.remove();
+
+        // Debounce timer for auto-save
+        let saveDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+        const autoSave = async () => {
+            if (saveDebounceTimer) clearTimeout(saveDebounceTimer);
+            saveDebounceTimer = setTimeout(async () => {
+                if (currentTableConfig) {
+                    const tableStore = getTableStore();
+                    await tableStore.saveConfig(currentTableConfig);
+                    // Update header text in place
+                    const headerText = anchorEl.querySelector('.column-header-text') as HTMLElement;
+                    if (headerText) {
+                        headerText.innerText = column.name;
+                    }
+                }
+            }, 300);
+        };
+
+        // Backdrop for click-outside-to-close
+        const backdrop = ztoolkit.UI.createElement(doc, 'div', {
+            properties: { id: 'table-column-editor-backdrop' },
+            styles: {
+                position: "fixed",
+                top: "0",
+                left: "0",
+                right: "0",
+                bottom: "0",
+                zIndex: "998"
+            },
+            listeners: [{
+                type: "click",
+                listener: (e: Event) => {
+                    e.stopPropagation();
+                    if (saveDebounceTimer) clearTimeout(saveDebounceTimer);
+                    backdrop.remove();
+                    const p = doc.getElementById('table-column-editor-popover');
+                    if (p) p.remove();
+                }
+            }]
+        });
+        if (doc.body) {
+            doc.body.appendChild(backdrop);
+        } else {
+            doc.documentElement?.appendChild(backdrop);
+        }
+
+        // Create popover
+        const popover = ztoolkit.UI.createElement(doc, 'div', {
+            properties: { id: 'table-column-editor-popover' },
+            styles: {
+                position: 'fixed',
+                zIndex: '999',
+                backgroundColor: 'var(--background-primary)',
+                border: '1px solid var(--border-primary)',
+                borderRadius: '8px',
+                padding: '12px',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                width: '280px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '10px'
+            },
+            listeners: [{
+                type: "click",
+                listener: (e: Event) => e.stopPropagation()
+            }]
+        });
+
+        // Title label
+        const nameLabel = ztoolkit.UI.createElement(doc, 'div', {
+            properties: { innerText: "Column Title" },
+            styles: { fontSize: "11px", fontWeight: "600", color: "var(--text-secondary)" }
+        });
+        popover.appendChild(nameLabel);
+
+        // Title input
+        const nameInput = ztoolkit.UI.createElement(doc, 'input', {
+            properties: { value: column.name, placeholder: "Column Name" },
+            styles: {
+                padding: "8px 10px",
+                border: "1px solid var(--border-primary)",
+                borderRadius: "6px",
+                fontSize: "13px",
+                width: "100%",
+                boxSizing: "border-box",
+                backgroundColor: "var(--background-secondary)",
+                color: "var(--text-primary)"
+            }
+        }) as HTMLInputElement;
+
+        nameInput.addEventListener('input', () => {
+            column.name = nameInput.value;
+            autoSave();
+        });
+        popover.appendChild(nameInput);
+
+        // AI Prompt label
+        const promptLabel = ztoolkit.UI.createElement(doc, 'div', {
+            properties: { innerText: "AI Instructions" },
+            styles: { fontSize: "11px", fontWeight: "600", color: "var(--text-secondary)", marginTop: "4px" }
+        });
+        popover.appendChild(promptLabel);
+
+        // AI Prompt textarea
+        const promptInput = ztoolkit.UI.createElement(doc, 'textarea', {
+            properties: { value: column.aiPrompt || "", placeholder: "E.g., Summarize the methodology..." },
+            styles: {
+                padding: "8px 10px",
+                border: "1px solid var(--border-primary)",
+                borderRadius: "6px",
+                fontSize: "12px",
+                width: "100%",
+                height: "80px",
+                resize: "vertical",
+                fontFamily: "inherit",
+                boxSizing: "border-box",
+                backgroundColor: "var(--background-secondary)",
+                color: "var(--text-primary)",
+                lineHeight: "1.4"
+            }
+        }) as HTMLTextAreaElement;
+
+        promptInput.addEventListener('input', () => {
+            column.aiPrompt = promptInput.value;
+            autoSave();
+        });
+        popover.appendChild(promptInput);
+
+        // Remove Column button
+        const removeBtn = ztoolkit.UI.createElement(doc, 'button', {
+            properties: { innerText: "🗑️ Remove Column" },
+            styles: {
+                padding: "8px 12px",
+                fontSize: "12px",
+                color: "#c62828",
+                border: "1px solid #c62828",
+                borderRadius: "6px",
+                backgroundColor: "transparent",
+                cursor: "pointer",
+                marginTop: "6px"
+            },
+            listeners: [{
+                type: "click",
+                listener: async () => {
+                    if (currentTableConfig) {
+                        // Remove column from config
+                        currentTableConfig.columns = currentTableConfig.columns.filter(c => c.id !== column.id);
+                        // Remove generated data for this column
+                        if (currentTableConfig.generatedData) {
+                            for (const paperId in currentTableConfig.generatedData) {
+                                delete currentTableConfig.generatedData[paperId][column.id];
+                            }
+                        }
+                        const tableStore = getTableStore();
+                        await tableStore.saveConfig(currentTableConfig);
+                        backdrop.remove();
+                        popover.remove();
+                        // Re-render
+                        if (currentContainer && currentItem) {
+                            this.renderInterface(currentContainer, currentItem);
+                        }
+                    }
+                }
+            }]
+        });
+
+        // Hover effect for remove button
+        removeBtn.addEventListener("mouseenter", () => {
+            removeBtn.style.backgroundColor = "#c62828";
+            removeBtn.style.color = "white";
+        });
+        removeBtn.addEventListener("mouseleave", () => {
+            removeBtn.style.backgroundColor = "transparent";
+            removeBtn.style.color = "#c62828";
+        });
+
+        popover.appendChild(removeBtn);
+
+        // Position popover below the anchor element
+        const rect = anchorEl.getBoundingClientRect();
+        const view = doc.defaultView || { innerHeight: 800, innerWidth: 1200 };
+        const spaceBelow = view.innerHeight - rect.bottom;
+
+        if (spaceBelow < 280) {
+            // Position above if not enough space below
+            popover.style.bottom = `${view.innerHeight - rect.top + 5}px`;
+        } else {
+            popover.style.top = `${rect.bottom + 5}px`;
+        }
+
+        // Horizontal positioning - try to align left edge with anchor
+        let leftPos = rect.left;
+        if (leftPos + 280 > view.innerWidth) {
+            leftPos = view.innerWidth - 290;
+        }
+        popover.style.left = `${leftPos}px`;
+
+        if (doc.body) {
+            doc.body.appendChild(popover);
+        } else {
+            doc.documentElement?.appendChild(popover);
+        }
+
+        // Focus the name input
+        nameInput.focus();
+        nameInput.select();
     }
 
     // ==================== Search Results Table ====================
@@ -10224,7 +10700,7 @@ Task: ${columnPrompt}`;
         const userPrompt = `Paper: "${paper.title}"
 
 Source content:
-${sourceText.substring(0, 8000)}
+${sourceText}
 
 Task: For the column "${column.name}": ${column.aiPrompt}
 ${lengthConstraint}`;
@@ -11432,6 +11908,12 @@ ${tableRows}  </tbody>
      * Create a removable chip element
      */
     private static createChip(doc: Document, label: string, config: typeof selectionConfigs.items, onRemove: () => void): HTMLElement {
+        // Detect dark mode using Zotero's theme
+        const isDark = getTheme() === 'dark';
+
+        // Get chip colors based on theme
+        const chipColors = this.getChipColors(config.className, isDark);
+
         const chip = ztoolkit.UI.createElement(doc, "div", {
             properties: {
                 className: `chip ${config.className}`
@@ -11444,7 +11926,10 @@ ${tableRows}  </tbody>
                 borderRadius: "12px",
                 fontSize: "11px",
                 maxWidth: "180px",
-                border: "1px solid"
+                border: "1px solid",
+                backgroundColor: chipColors.bg,
+                borderColor: chipColors.border,
+                color: chipColors.text
             }
         });
 
@@ -11468,7 +11953,7 @@ ${tableRows}  </tbody>
             styles: {
                 cursor: "pointer",
                 fontSize: "10px",
-                color: "var(--text-secondary)",
+                color: isDark ? "#bbb" : "#666",
                 marginLeft: "2px",
                 padding: "2px",
                 borderRadius: "50%"
@@ -11486,6 +11971,53 @@ ${tableRows}  </tbody>
         chip.appendChild(text);
         chip.appendChild(removeBtn);
         return chip;
+    }
+
+    /**
+     * Get chip colors based on chip type and dark mode
+     */
+    private static getChipColors(className: string, isDark: boolean): { bg: string; border: string; text: string } {
+        const colors: Record<string, { light: { bg: string; border: string; text: string }; dark: { bg: string; border: string; text: string } }> = {
+            'chip-items': {
+                light: { bg: '#e3f2fd', border: '#2196f3', text: '#1565c0' },
+                dark: { bg: '#0d47a1', border: '#4dabf5', text: '#fff' }
+            },
+            'chip-creators': {
+                light: { bg: '#f3e5f5', border: '#9c27b0', text: '#7b1fa2' },
+                dark: { bg: '#4a148c', border: '#ab47bc', text: '#fff' }
+            },
+            'chip-tags': {
+                light: { bg: '#fff3e0', border: '#ff9800', text: '#e65100' },
+                dark: { bg: '#6d4d00', border: '#ffc94d', text: '#fff' }
+            },
+            'chip-collections': {
+                light: { bg: '#e8f5e9', border: '#4caf50', text: '#2e7d32' },
+                dark: { bg: '#1b5e20', border: '#66bb6a', text: '#fff' }
+            },
+            'chip-notes': {
+                light: { bg: '#fffde7', border: '#ffeb3b', text: '#f57f17' },
+                dark: { bg: '#fff59d', border: '#ffc107', text: '#000' }
+            },
+            'chip-notes-summary': {
+                light: { bg: '#fffde7', border: '#ffeb3b', text: '#f57f17' },
+                dark: { bg: '#fff59d', border: '#ffc107', text: '#000' }
+            },
+            'chip-attachments': {
+                light: { bg: '#fce4ec', border: '#e91e63', text: '#c2185b' },
+                dark: { bg: '#880e4f', border: '#f06292', text: '#fff' }
+            },
+            'chip-images': {
+                light: { bg: '#e1f5fe', border: '#03a9f4', text: '#0277bd' },
+                dark: { bg: '#01579b', border: '#4fc3f7', text: '#fff' }
+            },
+            'chip-tables': {
+                light: { bg: '#f3e5f5', border: '#7b1fa2', text: '#4a148c' },
+                dark: { bg: '#4a148c', border: '#ab47bc', text: '#fff' }
+            }
+        };
+
+        const colorSet = colors[className] || colors['chip-items'];
+        return isDark ? colorSet.dark : colorSet.light;
     }
 
     /**
@@ -12277,7 +12809,22 @@ ${tableRows}  </tbody>
                 if (item.abstract) {
                     context += `\nAbstract: ${item.abstract}`;
                 }
+
+                // Fetch PDF/note content for this item
+                // Priority: Notes with matching title → Indexed PDF text → (skip if unavailable)
+                try {
+                    const zoteroItem = Zotero.Items.get(item.id);
+                    if (zoteroItem && zoteroItem.isRegularItem()) {
+                        const itemContent = await getPdfTextForItem(zoteroItem, 0, true, true);
+                        if (itemContent) {
+                            context += `\n\nContent:\n${itemContent}`;
+                        }
+                    }
+                } catch (e) {
+                    Zotero.debug(`[seerai] Error fetching content for item ${item.id}: ${e}`);
+                }
             }
+
 
             // Include notes
             if (states.notes.length > 0) {
@@ -12519,7 +13066,21 @@ Be concise, accurate, and helpful. When referencing papers, cite them by title o
                 if (item.abstract) {
                     context += `\nAbstract: ${item.abstract}`;
                 }
+
+                // Fetch PDF/note content for this item
+                try {
+                    const zoteroItem = Zotero.Items.get(item.id);
+                    if (zoteroItem && zoteroItem.isRegularItem()) {
+                        const itemContent = await getPdfTextForItem(zoteroItem, 0, true, true);
+                        if (itemContent) {
+                            context += `\n\nContent:\n${itemContent}`;
+                        }
+                    }
+                } catch (e) {
+                    Zotero.debug(`[seerai] Error fetching content for item ${item.id}: ${e}`);
+                }
             }
+
 
             if (states.notes.length > 0) {
                 context += "\n\n=== Notes ===";
@@ -13024,7 +13585,21 @@ Be concise, accurate, and helpful. When referencing papers, cite them by title o
                 if (item.abstract) {
                     context += `\nAbstract: ${item.abstract}`;
                 }
+
+                // Fetch PDF/note content for this item
+                try {
+                    const zoteroItem = Zotero.Items.get(item.id);
+                    if (zoteroItem && zoteroItem.isRegularItem()) {
+                        const itemContent = await getPdfTextForItem(zoteroItem, 0, true, true);
+                        if (itemContent) {
+                            context += `\n\nContent:\n${itemContent}`;
+                        }
+                    }
+                } catch (e) {
+                    Zotero.debug(`[seerai] Error fetching content for item ${item.id}: ${e}`);
+                }
             }
+
 
             if (states.notes.length > 0) {
                 context += "\n\n=== Notes ===";
