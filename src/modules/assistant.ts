@@ -288,7 +288,7 @@ function extractArxivFromItem(item: Zotero.Item): string | undefined {
  * Run 6-step PDF discovery for a Zotero item and attach if found
  * Returns true if PDF was successfully found and attached
  */
-async function findAndAttachPdfForItem(
+export async function findAndAttachPdfForItem(
     item: Zotero.Item,
     onProgress?: (step: string) => void
 ): Promise<boolean> {
@@ -340,7 +340,7 @@ async function findAndAttachPdfForItem(
 
     // Step 5: Unpaywall
     if (doi) {
-        onProgress?.("🔎 Unpaywall...");
+        onProgress?.("🔍 Unpaywall...");
         const unpaywallResult = await unpaywallService.getPdfUrl(doi);
         if (unpaywallResult && await downloadAndAttachPdf(item, unpaywallResult)) {
             return true;
@@ -2587,7 +2587,7 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
             let sourceUrl: string | null = null;
 
             const pdfDiscoveryBtn = ztoolkit.UI.createElement(doc, "button", {
-                properties: { innerText: "🔎 Find PDF" },
+                properties: { innerText: "🔍 Find PDF" },
                 styles: { ...actionBtnStyle, backgroundColor: "#e3f2fd", color: "#1976d2", border: "1px solid #90caf9" },
                 listeners: [{
                     type: "click",
@@ -2714,7 +2714,7 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
 
                     // Step 5: Try Unpaywall if DOI available
                     if (paper.externalIds?.DOI) {
-                        pdfDiscoveryBtn.textContent = "🔎 Unpaywall...";
+                        pdfDiscoveryBtn.textContent = "🔍 Unpaywall...";
                         Zotero.debug(`[seerai] Trying Unpaywall for DOI: ${paper.externalIds.DOI}`);
                         const unpaywallResult = await unpaywallService.getPdfUrl(paper.externalIds.DOI);
                         if (unpaywallResult) {
@@ -3520,6 +3520,28 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
             }]
         });
         toolbar.appendChild(extractBtn);
+
+        // Search all PDF button (find PDFs for items without attachments)
+        const searchPdfBtn = ztoolkit.UI.createElement(doc, "button", {
+            properties: { className: "table-btn search-pdf-all-btn", innerText: "🔍 Search all PDF" },
+            attributes: { id: "search-pdf-all-btn" },
+            styles: {
+                padding: "6px 12px",
+                fontSize: "11px",
+                border: "1px solid var(--border-primary)",
+                borderRadius: "4px",
+                backgroundColor: "var(--background-primary)",
+                color: "var(--text-primary)",
+                cursor: "pointer"
+            },
+            listeners: [{
+                type: "click",
+                listener: async () => {
+                    await this.searchAllPdfsInTable(doc, searchPdfBtn);
+                }
+            }]
+        });
+        toolbar.appendChild(searchPdfBtn);
 
         // Response-length control
         const responseLengthContainer = this.createResponseLengthControl(doc);
@@ -4414,7 +4436,7 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
                 } else {
                     // No content generated
                     task.td.innerHTML = `<span style="color: var(--text-tertiary); font-size: 11px; font-style: italic;">Empty - no notes</span>`;
-                    task.td.title = "No notes found. Use 'Extract with OCR' to create notes first.";
+                    task.td.title = "No notes found. Use '🔍 Extract with ocr' to create notes first.";
                     task.td.style.cursor = "default";
                 }
             } catch (e) {
@@ -4609,6 +4631,120 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
             this.debounceTableRefresh(doc, item);
         }, 1500);
     }
+
+    /**
+     * Search for PDFs for all table items that don't have PDF attachments
+     * Processes items sequentially (one at a time) through the 6-step pipeline
+     */
+    private static async searchAllPdfsInTable(doc: Document, btn: HTMLElement): Promise<void> {
+        Zotero.debug("[seerai] Search all PDF clicked");
+
+        // Find all visible rows
+        const table = doc.querySelector('.papers-table');
+        if (!table) return;
+
+        const rows = table.querySelectorAll('tr[data-paper-id]');
+        if (rows.length === 0) return;
+
+        // Build list of items without PDF
+        interface SearchTask {
+            paperId: number;
+            item: Zotero.Item;
+        }
+        const tasks: SearchTask[] = [];
+
+        for (let i = 0; i < rows.length; i++) {
+            const tr = rows[i] as HTMLElement;
+            const paperId = parseInt(tr.getAttribute('data-paper-id') || "0", 10);
+            if (!paperId) continue;
+
+            const item = Zotero.Items.get(paperId);
+            if (!item || !item.isRegularItem()) continue;
+
+            // Check if has PDF already
+            const attachments = item.getAttachments() || [];
+            const hasPdf = attachments.some((attId: number) => {
+                const att = Zotero.Items.get(attId);
+                return att && (att.attachmentContentType === 'application/pdf' ||
+                    att.attachmentPath?.toLowerCase().endsWith('.pdf'));
+            });
+
+            if (!hasPdf) {
+                // Check if has identifiers for search
+                const doi = item.getField('DOI') as string;
+                const arxivId = extractArxivFromItem(item);
+                const pmid = extractPmidFromItem(item);
+                if (doi || arxivId || pmid) {
+                    tasks.push({ paperId, item });
+                }
+            }
+        }
+
+        if (tasks.length === 0) {
+            Zotero.debug("[seerai] No items without PDF to search");
+            btn.innerText = "✓ All have PDFs";
+            setTimeout(() => { btn.innerText = "🔍 Search all PDF"; }, 2000);
+            return;
+        }
+
+        Zotero.debug(`[seerai] ${tasks.length} items to search for PDFs`);
+
+        const originalBtnText = btn.innerText;
+        let completed = 0;
+        let found = 0;
+
+        // Process sequentially (one at a time)
+        for (const task of tasks) {
+            completed++;
+            btn.innerText = `🔍 Searching ${completed}/${tasks.length}...`;
+            (btn as HTMLButtonElement).disabled = true;
+            btn.style.cursor = "wait";
+
+            // Find the table row and computed cells for this item
+            const tr = doc.querySelector(`tr[data-paper-id="${task.paperId}"]`);
+            const computedCells = tr ? tr.querySelectorAll('td') : [];
+
+            try {
+                const success = await findAndAttachPdfForItem(task.item, (step) => {
+                    btn.innerText = `🔍 ${completed}/${tasks.length} ${step}`;
+                });
+                if (success) {
+                    found++;
+                    Zotero.debug(`[seerai] Found PDF for item ${task.paperId}`);
+                    // Update computed column cells to show "📄 Process PDF"
+                    computedCells.forEach((td: Element) => {
+                        const content = String(td.innerHTML);
+                        if (content.includes('Search PDF') || content.includes('Source-Link') || content.includes('Searching')) {
+                            (td as HTMLElement).innerHTML = `<span style="color: var(--highlight-primary); font-size: 11px;">📄 Process PDF</span>`;
+                        }
+                    });
+                } else {
+                    // Update cells to show Source-Link or not found
+                    computedCells.forEach((td: Element) => {
+                        const content = String(td.innerHTML);
+                        if (content.includes('Search PDF') || content.includes('Searching')) {
+                            const doi = task.item.getField('DOI') as string || undefined;
+                            const sourceLink = getSourceLinkForPaper(doi, undefined, undefined, undefined, task.item.getField('url') as string);
+                            if (sourceLink) {
+                                (td as HTMLElement).innerHTML = `<span class="source-link-btn" data-url="${sourceLink}" style="color: var(--highlight-primary); font-size: 11px; cursor: pointer;">🔗 Source-Link</span>`;
+                            } else {
+                                (td as HTMLElement).innerHTML = `<span style="color: var(--text-tertiary); font-size: 11px;">❌ Not found</span>`;
+                            }
+                        }
+                    });
+                }
+            } catch (e) {
+                Zotero.debug(`[seerai] Search error for ${task.paperId}: ${e}`);
+            }
+        }
+
+        // Restore button
+        btn.innerText = `✓ Found ${found}/${tasks.length}`;
+        (btn as HTMLButtonElement).disabled = false;
+        btn.style.cursor = "pointer";
+        setTimeout(() => { btn.innerText = originalBtnText; }, 3000);
+    }
+
 
     /**
      * Generate content for a single cell
@@ -6276,6 +6412,29 @@ Task: ${columnPrompt}`;
                     });
 
                     if (currentlyEmpty && isComputed) {
+                        // Handle Attach PDF click FIRST (before Search PDF)
+                        const attachPdfBtn = td.querySelector('.attach-pdf-btn');
+                        if (attachPdfBtn && item) {
+                            // Open file picker to attach PDF
+                            const fp = new (Zotero.getMainWindow() as any).FilePicker();
+                            fp.init(Zotero.getMainWindow(), "Select PDF to attach", fp.modeOpen);
+                            fp.appendFilter("PDF Files", "*.pdf");
+                            const result = await fp.show();
+                            if (result === fp.returnOK && fp.file) {
+                                try {
+                                    await Zotero.Attachments.importFromFile({
+                                        file: fp.file,
+                                        parentItemID: item.id,
+                                        contentType: 'application/pdf'
+                                    });
+                                    td.innerHTML = `<span style="color: var(--highlight-primary); font-size: 11px;">📄 Process PDF</span>`;
+                                } catch (e) {
+                                    td.innerHTML = `<span style="color: #c62828; font-size: 11px;">Attach failed</span>`;
+                                }
+                            }
+                            return;
+                        }
+
                         // Check if "Search PDF" button was clicked
                         const searchPdfBtn = td.querySelector('.search-pdf-btn');
                         if (searchPdfBtn && !hasNotes && !hasPDF && item) {
@@ -6320,8 +6479,11 @@ Task: ${columnPrompt}`;
                             const linkUrl = sourceLinkBtn.getAttribute('data-url');
                             if (linkUrl) {
                                 Zotero.launchURL(linkUrl);
-                                // Change to retry button
-                                td.innerHTML = `<span class="search-pdf-btn" style="color: var(--highlight-primary); font-size: 11px; cursor: pointer;">🔁 Retry</span>`;
+                                // Show Attach and Retry buttons
+                                td.innerHTML = `<span style="font-size: 11px;">
+                                    <span class="attach-pdf-btn" data-item-id="${row.paperId}" style="color: var(--highlight-primary); cursor: pointer; margin-right: 8px;">⬇️ Attach</span>
+                                    <span class="search-pdf-btn" style="color: var(--highlight-primary); cursor: pointer;">🔁 Retry</span>
+                                </span>`;
                                 td.style.cursor = "pointer";
                             }
                             return;
