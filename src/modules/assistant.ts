@@ -17,6 +17,9 @@ import {
     defaultColumns,
     SearchState,
     defaultSearchState,
+    SearchAnalysisColumn,
+    SearchColumnConfig,
+    defaultSearchColumnConfig,
 } from "./chat/tableTypes";
 import { OcrService } from "./ocr";
 import {
@@ -65,6 +68,10 @@ const firecrawlPdfCache = new Map<string, PdfDiscoveryResult>();
 
 // Cache for Zotero Find Full Text results (cacheKey -> pdfPath or null)
 const zoteroFindPdfCache: Map<string, string | null> = new Map();
+
+// Search analysis column configuration (persisted)
+let searchColumnConfig: SearchColumnConfig = { ...defaultSearchColumnConfig };
+let searchColumnConfigFilePath: string | null = null;
 
 /**
  * Use Zotero's Find Full Text resolver to fetch PDF for a paper.
@@ -496,6 +503,53 @@ async function deleteSearchHistoryEntry(id: string): Promise<void> {
     const filtered = history.filter(h => h.id !== id);
     await saveSearchHistory(filtered);
     Zotero.debug(`[seerai] Deleted search history entry: ${id}`);
+}
+
+// ==================== Search Column Configuration Persistence ====================
+
+function getSearchColumnConfigPath(): string {
+    if (!searchColumnConfigFilePath) {
+        const dataDir = PathUtils.join(Zotero.DataDirectory.dir, config.addonRef);
+        searchColumnConfigFilePath = PathUtils.join(dataDir, "search_columns.json");
+    }
+    return searchColumnConfigFilePath;
+}
+
+async function loadSearchColumnConfig(): Promise<SearchColumnConfig> {
+    try {
+        await ensureSearchHistoryDir(); // Reuse the same data directory
+        const filePath = getSearchColumnConfigPath();
+
+        if (!(await IOUtils.exists(filePath))) {
+            return { ...defaultSearchColumnConfig };
+        }
+
+        const contentBytes = await IOUtils.read(filePath);
+        const content = new TextDecoder().decode(contentBytes);
+        if (!content) return { ...defaultSearchColumnConfig };
+
+        const parsed = JSON.parse(content) as SearchColumnConfig;
+        // Ensure structure is valid
+        return {
+            columns: parsed.columns || [],
+            generatedData: parsed.generatedData || {}
+        };
+    } catch (e) {
+        Zotero.debug(`[seerai] Error loading search column config: ${e}`);
+        return { ...defaultSearchColumnConfig };
+    }
+}
+
+async function saveSearchColumnConfig(): Promise<void> {
+    try {
+        await ensureSearchHistoryDir();
+        const filePath = getSearchColumnConfigPath();
+        const encoder = new TextEncoder();
+        await IOUtils.write(filePath, encoder.encode(JSON.stringify(searchColumnConfig, null, 2)));
+        Zotero.debug(`[seerai] Saved search column config (${searchColumnConfig.columns.length} columns)`);
+    } catch (e) {
+        Zotero.debug(`[seerai] Error saving search column config: ${e}`);
+    }
 }
 
 // DataLabs service for PDF-to-note conversion
@@ -966,6 +1020,9 @@ export class Assistant {
      * Create the Search tab content with Semantic Scholar integration
      */
     private static async createSearchTabContent(doc: Document, item: Zotero.Item): Promise<HTMLElement> {
+        // Load search column configuration
+        searchColumnConfig = await loadSearchColumnConfig();
+
         const searchContainer = ztoolkit.UI.createElement(doc, "div", {
             properties: { className: "search-tab-container" },
             styles: {
@@ -2515,7 +2572,7 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
             return;
         }
 
-        // Total count header
+        // Total count header with export button
         const countHeader = ztoolkit.UI.createElement(doc, "div", {
             styles: {
                 padding: "8px 12px",
@@ -2523,11 +2580,96 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
                 borderBottom: "1px solid var(--border-primary)",
                 fontSize: "12px",
                 color: "var(--text-secondary)",
-                fontWeight: "500"
+                fontWeight: "500",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center"
             }
         });
-        countHeader.innerHTML = `📊 Found <strong>${totalSearchResults.toLocaleString()}</strong> papers • Showing ${currentSearchResults.length}`;
+
+        const countText = ztoolkit.UI.createElement(doc, "span", {});
+        countText.innerHTML = `📊 Found <strong>${totalSearchResults.toLocaleString()}</strong> papers • Showing ${currentSearchResults.length}`;
+        countHeader.appendChild(countText);
+
+        // Button group container
+        const btnGroup = ztoolkit.UI.createElement(doc, "div", {
+            styles: {
+                display: "flex",
+                gap: "6px",
+                alignItems: "center"
+            }
+        });
+
+        // Add Column button
+        const addColumnBtn = ztoolkit.UI.createElement(doc, "button", {
+            properties: { innerText: "➕ Column" },
+            styles: {
+                padding: "4px 10px",
+                fontSize: "11px",
+                border: "1px solid var(--border-primary)",
+                borderRadius: "4px",
+                backgroundColor: "var(--background-primary)",
+                color: "var(--text-primary)",
+                cursor: "pointer"
+            },
+            listeners: [{
+                type: "click",
+                listener: (e: Event) => {
+                    e.stopPropagation();
+                    this.showSearchColumnDropdown(doc, addColumnBtn as HTMLButtonElement, container, item);
+                }
+            }]
+        });
+        btnGroup.appendChild(addColumnBtn);
+
+        // Export BibTeX button
+        const exportBtn = ztoolkit.UI.createElement(doc, "button", {
+            properties: { innerText: "📥 Export BibTeX" },
+            styles: {
+                padding: "4px 10px",
+                fontSize: "11px",
+                border: "1px solid var(--border-primary)",
+                borderRadius: "4px",
+                backgroundColor: "var(--background-primary)",
+                color: "var(--text-primary)",
+                cursor: "pointer"
+            },
+            listeners: [{
+                type: "click",
+                listener: async (e: Event) => {
+                    e.stopPropagation();
+                    const btn = e.target as HTMLButtonElement;
+                    const originalText = btn.textContent;
+                    btn.textContent = "⏳ Exporting...";
+                    btn.disabled = true;
+                    try {
+                        await this.exportResultsAsBibtex();
+                        btn.textContent = "✓ Exported!";
+                        setTimeout(() => {
+                            btn.textContent = originalText;
+                            btn.disabled = false;
+                        }, 2000);
+                    } catch (err) {
+                        btn.textContent = "⚠️ Failed";
+                        setTimeout(() => {
+                            btn.textContent = originalText;
+                            btn.disabled = false;
+                        }, 2000);
+                    }
+                }
+            }]
+        });
+        btnGroup.appendChild(exportBtn);
+
+        countHeader.appendChild(btnGroup);
+
         container.appendChild(countHeader);
+
+        // Column tags bar (if any columns configured)
+        if (searchColumnConfig.columns.length > 0) {
+            const columnTagsBar = this.createSearchColumnTagsBar(doc, container, item);
+            container.appendChild(columnTagsBar);
+        }
 
         // Render result cards
         currentSearchResults.forEach(paper => {
@@ -2721,33 +2863,7 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
         });
         header.appendChild(title);
 
-        if (paper.openAccessPdf) {
-            // Paper has open access PDF from Semantic Scholar - show badge in header
-            const pdfBadge = ztoolkit.UI.createElement(doc, "span", {
-                properties: { innerText: "📄 PDF" },
-                styles: {
-                    fontSize: "10px",
-                    padding: "2px 6px",
-                    backgroundColor: "#e8f5e9",
-                    color: "#2e7d32",
-                    borderRadius: "4px",
-                    marginLeft: "8px",
-                    whiteSpace: "nowrap",
-                    cursor: "pointer"
-                },
-                listeners: [{
-                    type: "click",
-                    listener: (e: Event) => {
-                        e.stopPropagation();
-                        Zotero.launchURL(paper.openAccessPdf!.url);
-                    }
-                }]
-            });
-            pdfBadge.title = paper.openAccessPdf.url;
-            header.appendChild(pdfBadge);
-        }
-        // Note: PDF discovery button will be added in the actions area for papers without openAccessPdf
-
+        // PDF badge removed - PDF access available via action buttons below
 
         card.appendChild(header);
 
@@ -3197,6 +3313,15 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
 
         card.appendChild(actions);
 
+        // Analysis columns section (if any configured)
+        if (searchColumnConfig.columns.length > 0) {
+            const resultsArea = doc.getElementById("semantic-scholar-results");
+            if (resultsArea) {
+                const columnsSection = this.createSearchCardColumns(doc, paper, resultsArea as HTMLElement, item);
+                card.appendChild(columnsSection);
+            }
+        }
+
         // Hover effect
         card.addEventListener("mouseenter", () => {
             card.style.backgroundColor = "var(--background-secondary)";
@@ -3566,6 +3691,124 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
         } catch (error) {
             Zotero.debug(`[seerai] Error adding paper to Zotero: ${error}`);
             return null;
+        }
+    }
+
+    /**
+     * Convert a Semantic Scholar paper to BibTeX format
+     */
+    private static paperToBibtex(paper: SemanticScholarPaper): string {
+        // Generate a unique cite key: firstAuthorLastName + year + firstTitleWord
+        let citeKey = 'unknown';
+        if (paper.authors && paper.authors.length > 0) {
+            const firstAuthor = paper.authors[0].name.trim();
+            const lastName = firstAuthor.split(' ').pop() || 'unknown';
+            const year = paper.year || 'nd';
+            const titleWord = paper.title.split(/\s+/)[0]?.replace(/[^a-zA-Z]/g, '') || 'paper';
+            citeKey = `${lastName.toLowerCase()}${year}${titleWord.toLowerCase()}`;
+        }
+
+        // Determine entry type
+        let entryType = '@article';
+        if (paper.publicationTypes) {
+            if (paper.publicationTypes.includes('Conference')) {
+                entryType = '@inproceedings';
+            } else if (paper.publicationTypes.includes('Book')) {
+                entryType = '@book';
+            }
+        }
+
+        // Format authors: "LastName, FirstName and LastName, FirstName"
+        let authorsStr = '';
+        if (paper.authors && paper.authors.length > 0) {
+            authorsStr = paper.authors.map(a => {
+                const parts = a.name.trim().split(' ');
+                const lastName = parts.pop() || '';
+                const firstName = parts.join(' ');
+                return firstName ? `${lastName}, ${firstName}` : lastName;
+            }).join(' and ');
+        }
+
+        // Escape special BibTeX characters
+        const escapeLatex = (str: string): string => {
+            return str
+                .replace(/\\/g, '\\textbackslash{}')
+                .replace(/&/g, '\\&')
+                .replace(/%/g, '\\%')
+                .replace(/\$/g, '\\$')
+                .replace(/#/g, '\\#')
+                .replace(/_/g, '\\_')
+                .replace(/\{/g, '\\{')
+                .replace(/\}/g, '\\}')
+                .replace(/~/g, '\\textasciitilde{}')
+                .replace(/\^/g, '\\textasciicircum{}');
+        };
+
+        // Build the BibTeX entry
+        const lines: string[] = [];
+        lines.push(`${entryType}{${citeKey},`);
+        lines.push(`  title = {${escapeLatex(paper.title)}},`);
+
+        if (authorsStr) {
+            lines.push(`  author = {${escapeLatex(authorsStr)}},`);
+        }
+        if (paper.year) {
+            lines.push(`  year = {${paper.year}},`);
+        }
+        if (paper.venue) {
+            const venueField = entryType === '@inproceedings' ? 'booktitle' : 'journal';
+            lines.push(`  ${venueField} = {${escapeLatex(paper.venue)}},`);
+        }
+        if (paper.externalIds?.DOI) {
+            lines.push(`  doi = {${paper.externalIds.DOI}},`);
+        }
+        if (paper.url) {
+            lines.push(`  url = {${paper.url}},`);
+        }
+        if (paper.abstract) {
+            lines.push(`  abstract = {${escapeLatex(paper.abstract)}},`);
+        }
+
+        // Remove trailing comma from last field
+        if (lines.length > 1) {
+            lines[lines.length - 1] = lines[lines.length - 1].replace(/,$/, '');
+        }
+        lines.push('}');
+
+        return lines.join('\n');
+    }
+
+    /**
+     * Export all current search results as a BibTeX file
+     */
+    private static async exportResultsAsBibtex(): Promise<void> {
+        if (currentSearchResults.length === 0) {
+            Zotero.debug('[seerai] No search results to export');
+            return;
+        }
+
+        try {
+            // Generate BibTeX for all papers
+            const bibtexEntries = currentSearchResults.map(paper => this.paperToBibtex(paper));
+            const bibtexContent = bibtexEntries.join('\n\n');
+
+            // Create file picker for save location using ztoolkit
+            const defaultFileName = `semantic_scholar_export_${new Date().toISOString().slice(0, 10)}.bib`;
+
+            const filePath = await new ztoolkit.FilePicker(
+                'Export BibTeX',
+                'save',
+                [['BibTeX Files', '*.bib']],
+                defaultFileName
+            ).open();
+
+            if (filePath) {
+                // Write the file using Zotero.File
+                await Zotero.File.putContentsAsync(filePath, bibtexContent);
+                Zotero.debug(`[seerai] Exported ${currentSearchResults.length} papers to BibTeX: ${filePath}`);
+            }
+        } catch (error) {
+            Zotero.debug(`[seerai] Error exporting BibTeX: ${error}`);
         }
     }
 
@@ -7788,6 +8031,488 @@ Task: ${columnPrompt}`;
         setTimeout(() => {
             doc.addEventListener('click', handleClickOutside);
         }, 150);
+    }
+
+    // ==================== Search Column Feature ====================
+
+    /**
+     * Show dropdown to add a new analysis column for search results
+     */
+    private static showSearchColumnDropdown(
+        doc: Document,
+        anchorEl: HTMLElement,
+        resultsContainer: HTMLElement,
+        item: Zotero.Item
+    ): void {
+        // Toggle existing dropdown
+        const existing = doc.getElementById('search-column-dropdown') as HTMLElement;
+        if (existing) {
+            existing.style.opacity = "0";
+            existing.style.transform = "translateY(-5px)";
+            setTimeout(() => existing.remove(), 150);
+            return;
+        }
+
+        // Helper to close dropdown with animation
+        const closeDropdown = () => {
+            dropdown.style.opacity = "0";
+            dropdown.style.transform = "translateY(-5px)";
+            setTimeout(() => dropdown.remove(), 150);
+        };
+
+        // Create dropdown panel
+        const dropdown = ztoolkit.UI.createElement(doc, 'div', {
+            properties: { id: 'search-column-dropdown' },
+            styles: {
+                position: 'fixed',
+                zIndex: '1000',
+                backgroundColor: 'var(--background-primary)',
+                borderRadius: '8px',
+                padding: '0',
+                boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
+                overflow: 'hidden',
+                border: '1px solid var(--border-primary)',
+                transition: 'all 0.15s ease-out',
+                opacity: '0',
+                transform: 'translateY(-5px)',
+                minWidth: '260px'
+            }
+        });
+
+        // Header
+        const header = ztoolkit.UI.createElement(doc, 'div', {
+            styles: {
+                background: 'linear-gradient(135deg, var(--highlight-primary) 0%, color-mix(in srgb, var(--highlight-primary) 80%, purple) 100%)',
+                padding: '8px 12px',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center'
+            }
+        });
+
+        const headerTitle = ztoolkit.UI.createElement(doc, 'div', {
+            properties: { innerText: '➕ New Analysis Column' },
+            styles: {
+                fontSize: '12px',
+                fontWeight: '600',
+                color: 'var(--highlight-text)'
+            }
+        });
+        header.appendChild(headerTitle);
+
+        const closeBtn = ztoolkit.UI.createElement(doc, 'button', {
+            properties: { innerText: '✕' },
+            styles: {
+                background: 'rgba(0,0,0,0.1)',
+                border: 'none',
+                borderRadius: '50%',
+                width: '18px',
+                height: '18px',
+                cursor: 'pointer',
+                color: 'var(--highlight-text)',
+                fontSize: '10px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+            },
+            listeners: [{
+                type: 'click',
+                listener: () => closeDropdown()
+            }]
+        });
+        header.appendChild(closeBtn);
+        dropdown.appendChild(header);
+
+        // Content
+        const content = ztoolkit.UI.createElement(doc, 'div', {
+            styles: {
+                padding: '10px 12px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px'
+            }
+        });
+
+        // Name input
+        const nameInput = ztoolkit.UI.createElement(doc, 'input', {
+            attributes: { type: 'text', placeholder: 'Column name (e.g., Key Findings)' },
+            styles: {
+                width: '100%',
+                padding: '8px 10px',
+                border: '1px solid var(--border-primary)',
+                borderRadius: '6px',
+                fontSize: '12px',
+                backgroundColor: 'var(--background-secondary)',
+                color: 'var(--text-primary)',
+                outline: 'none',
+                boxSizing: 'border-box'
+            }
+        }) as HTMLInputElement;
+        content.appendChild(nameInput);
+
+        // AI Prompt input
+        const promptInput = ztoolkit.UI.createElement(doc, 'textarea', {
+            attributes: { placeholder: 'AI Prompt (e.g., "Summarize the main findings...")' },
+            styles: {
+                width: '100%',
+                padding: '8px 10px',
+                border: '1px solid var(--border-primary)',
+                borderRadius: '6px',
+                fontSize: '11px',
+                minHeight: '60px',
+                resize: 'vertical',
+                backgroundColor: 'var(--background-secondary)',
+                color: 'var(--text-primary)',
+                outline: 'none',
+                boxSizing: 'border-box'
+            }
+        }) as HTMLTextAreaElement;
+        content.appendChild(promptInput);
+
+        // Info text
+        const infoText = ztoolkit.UI.createElement(doc, 'div', {
+            properties: { innerText: '💡 Uses abstract/TLDR if no PDF available' },
+            styles: {
+                fontSize: '10px',
+                color: 'var(--text-secondary)',
+                padding: '4px 0'
+            }
+        });
+        content.appendChild(infoText);
+
+        // Add button
+        const addBtn = ztoolkit.UI.createElement(doc, 'button', {
+            properties: { innerText: 'Add Column' },
+            styles: {
+                padding: '8px 12px',
+                border: 'none',
+                borderRadius: '6px',
+                backgroundColor: 'var(--highlight-primary)',
+                color: 'var(--highlight-text)',
+                cursor: 'pointer',
+                fontWeight: '600',
+                fontSize: '12px',
+                width: '100%'
+            },
+            listeners: [{
+                type: 'click',
+                listener: async () => {
+                    const name = nameInput.value.trim();
+                    if (!name) {
+                        nameInput.style.borderColor = '#c62828';
+                        return;
+                    }
+
+                    const aiPrompt = promptInput.value.trim();
+                    const newColumn: SearchAnalysisColumn = {
+                        id: `search_col_${Date.now()}`,
+                        name,
+                        aiPrompt: aiPrompt || `Extract information about "${name}" from this paper.`,
+                        width: 200
+                    };
+
+                    searchColumnConfig.columns.push(newColumn);
+                    await saveSearchColumnConfig();
+
+                    closeDropdown();
+                    // Re-render search results with new column
+                    this.renderSearchResults(doc, resultsContainer, item);
+                }
+            }]
+        });
+        content.appendChild(addBtn);
+
+        dropdown.appendChild(content);
+
+        // Position dropdown below the button
+        const rect = anchorEl.getBoundingClientRect();
+        dropdown.style.top = `${rect.bottom + 4}px`;
+        dropdown.style.left = `${rect.left}px`;
+        const container = doc.body || doc.documentElement;
+        if (container) container.appendChild(dropdown);
+
+        // Stop propagation on inputs
+        nameInput.addEventListener('click', (e) => e.stopPropagation());
+        nameInput.addEventListener('mousedown', (e) => e.stopPropagation());
+        promptInput.addEventListener('click', (e) => e.stopPropagation());
+        promptInput.addEventListener('mousedown', (e) => e.stopPropagation());
+
+        // Animate in
+        setTimeout(() => {
+            dropdown.style.opacity = "1";
+            dropdown.style.transform = "translateY(0)";
+        }, 10);
+
+        // Focus name input
+        setTimeout(() => nameInput.focus(), 50);
+
+        // Click outside to close
+        const handleClickOutside = (e: Event) => {
+            const target = e.target as Node;
+            if (!dropdown.contains(target) && !anchorEl.contains(target)) {
+                closeDropdown();
+                doc.removeEventListener('click', handleClickOutside);
+            }
+        };
+        setTimeout(() => {
+            doc.addEventListener('click', handleClickOutside);
+        }, 150);
+    }
+
+    /**
+     * Create horizontal bar showing active search columns as tags
+     */
+    private static createSearchColumnTagsBar(
+        doc: Document,
+        resultsContainer: HTMLElement,
+        item: Zotero.Item
+    ): HTMLElement {
+        const tagsBar = ztoolkit.UI.createElement(doc, 'div', {
+            styles: {
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: '6px',
+                padding: '8px 12px',
+                backgroundColor: 'var(--background-tertiary)',
+                borderBottom: '1px solid var(--border-primary)',
+                alignItems: 'center'
+            }
+        });
+
+        const label = ztoolkit.UI.createElement(doc, 'span', {
+            properties: { innerText: '📊 Columns:' },
+            styles: {
+                fontSize: '11px',
+                color: 'var(--text-secondary)',
+                marginRight: '4px'
+            }
+        });
+        tagsBar.appendChild(label);
+
+        searchColumnConfig.columns.forEach(col => {
+            const tag = ztoolkit.UI.createElement(doc, 'span', {
+                styles: {
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    padding: '3px 8px',
+                    backgroundColor: 'var(--highlight-primary)',
+                    color: 'var(--highlight-text)',
+                    borderRadius: '12px',
+                    fontSize: '11px',
+                    fontWeight: '500'
+                }
+            });
+
+            const nameSpan = ztoolkit.UI.createElement(doc, 'span', {
+                properties: { innerText: col.name }
+            });
+            tag.appendChild(nameSpan);
+
+            // Remove button
+            const removeBtn = ztoolkit.UI.createElement(doc, 'span', {
+                properties: { innerText: '✕' },
+                styles: {
+                    cursor: 'pointer',
+                    marginLeft: '2px',
+                    opacity: '0.8',
+                    fontSize: '10px'
+                },
+                listeners: [{
+                    type: 'click',
+                    listener: async (e: Event) => {
+                        e.stopPropagation();
+                        // Remove column
+                        searchColumnConfig.columns = searchColumnConfig.columns.filter(c => c.id !== col.id);
+                        // Remove generated data for this column
+                        for (const paperId in searchColumnConfig.generatedData) {
+                            delete searchColumnConfig.generatedData[paperId][col.id];
+                        }
+                        await saveSearchColumnConfig();
+                        // Re-render
+                        this.renderSearchResults(doc, resultsContainer, item);
+                    }
+                }]
+            });
+            tag.appendChild(removeBtn);
+
+            tagsBar.appendChild(tag);
+        });
+
+        return tagsBar;
+    }
+
+    /**
+     * Create column values section for a search result card
+     */
+    private static createSearchCardColumns(
+        doc: Document,
+        paper: SemanticScholarPaper,
+        resultsContainer: HTMLElement,
+        item: Zotero.Item
+    ): HTMLElement {
+        const columnsSection = ztoolkit.UI.createElement(doc, 'div', {
+            styles: {
+                marginTop: '8px',
+                padding: '8px',
+                backgroundColor: 'var(--background-secondary)',
+                borderRadius: '6px',
+                border: '1px solid var(--border-primary)'
+            }
+        });
+
+        searchColumnConfig.columns.forEach(col => {
+            const cachedValue = searchColumnConfig.generatedData[paper.paperId]?.[col.id];
+
+            const row = ztoolkit.UI.createElement(doc, 'div', {
+                styles: {
+                    display: 'flex',
+                    marginBottom: '6px',
+                    alignItems: 'flex-start'
+                }
+            });
+
+            // Column name
+            const nameEl = ztoolkit.UI.createElement(doc, 'span', {
+                properties: { innerText: `${col.name}:` },
+                styles: {
+                    fontSize: '11px',
+                    fontWeight: '600',
+                    color: 'var(--text-primary)',
+                    minWidth: '100px',
+                    marginRight: '8px'
+                }
+            });
+            row.appendChild(nameEl);
+
+            // Value or generate button
+            const valueEl = ztoolkit.UI.createElement(doc, 'div', {
+                styles: {
+                    flex: '1',
+                    fontSize: '11px',
+                    color: 'var(--text-secondary)',
+                    lineHeight: '1.4'
+                }
+            });
+
+            if (cachedValue) {
+                valueEl.textContent = cachedValue;
+            } else {
+                // Generate button
+                const generateBtn = ztoolkit.UI.createElement(doc, 'button', {
+                    properties: { innerText: '🔄 Generate' },
+                    styles: {
+                        padding: '3px 8px',
+                        fontSize: '10px',
+                        border: '1px solid var(--border-primary)',
+                        borderRadius: '4px',
+                        backgroundColor: 'var(--background-primary)',
+                        color: 'var(--text-primary)',
+                        cursor: 'pointer'
+                    },
+                    listeners: [{
+                        type: 'click',
+                        listener: async (e: Event) => {
+                            e.stopPropagation();
+                            const btn = e.target as HTMLButtonElement;
+                            btn.textContent = '⏳ Analyzing...';
+                            btn.disabled = true;
+
+                            try {
+                                const result = await this.analyzeSearchPaperColumn(paper, col);
+                                // Update display
+                                valueEl.textContent = result;
+                            } catch (err) {
+                                valueEl.textContent = `❌ Error: ${err}`;
+                            }
+                        }
+                    }]
+                });
+                valueEl.appendChild(generateBtn);
+            }
+
+            row.appendChild(valueEl);
+            columnsSection.appendChild(row);
+        });
+
+        return columnsSection;
+    }
+
+    /**
+     * Analyze a search paper for a specific column using AI
+     * Uses PDF if available, otherwise falls back to abstract/TLDR/metadata
+     */
+    private static async analyzeSearchPaperColumn(
+        paper: SemanticScholarPaper,
+        column: SearchAnalysisColumn
+    ): Promise<string> {
+        let sourceText = "";
+
+        // Priority 1: Use abstract + TLDR (most common for search results)
+        if (paper.abstract) {
+            sourceText = `Abstract: ${paper.abstract}`;
+        }
+        if (paper.tldr?.text) {
+            sourceText += `\n\nTLDR: ${paper.tldr.text}`;
+        }
+
+        // Priority 2: Fall back to metadata if no abstract
+        if (!sourceText.trim()) {
+            const authors = paper.authors?.map(a => a.name).join(", ") || "Unknown";
+            sourceText = `Title: ${paper.title}\nAuthors: ${authors}\nYear: ${paper.year || "Unknown"}\nVenue: ${paper.venue || "Unknown"}\nCitations: ${paper.citationCount}`;
+        }
+
+        // Generate using AI
+        const result = await this.generateSearchColumnContent(paper, column, sourceText);
+
+        // Cache result
+        if (!searchColumnConfig.generatedData[paper.paperId]) {
+            searchColumnConfig.generatedData[paper.paperId] = {};
+        }
+        searchColumnConfig.generatedData[paper.paperId][column.id] = result;
+        await saveSearchColumnConfig();
+
+        return result;
+    }
+
+    /**
+     * Generate column content for a search result using AI
+     */
+    private static async generateSearchColumnContent(
+        paper: SemanticScholarPaper,
+        column: SearchAnalysisColumn,
+        sourceText: string
+    ): Promise<string> {
+        const systemPrompt = `You are extracting structured information from academic papers. Be concise and factual. Return ONLY the requested information, no explanations.`;
+
+        const userPrompt = `Paper: "${paper.title}"
+
+Source content:
+${sourceText.substring(0, 8000)}
+
+Task: For the column "${column.name}": ${column.aiPrompt}
+Keep response under 100 words.`;
+
+        const activeModel = getActiveModelConfig();
+        if (!activeModel) {
+            throw new Error("No AI model configured. Please set up a model in settings.");
+        }
+
+        let fullResponse = "";
+        await openAIService.chatCompletionStream([
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt }
+        ], {
+            onToken: (token) => { fullResponse += token; },
+            onComplete: () => { },
+            onError: (err) => { throw err; }
+        }, {
+            apiURL: activeModel.apiURL,
+            apiKey: activeModel.apiKey,
+            model: activeModel.model
+        });
+
+        return fullResponse.trim();
     }
 
     /**
