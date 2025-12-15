@@ -55,7 +55,7 @@
   - `Shift+Enter`: Send message
 
 ### Semantic Search & Discovery
-- **Deep Web Search**: Integrated Firecrawl support for finding full-text content.
+- **Web Search**: Integrated Firecrawl support for finding full-text content.
 - **Semantic Scholar Agent**: Advanced paper search with filtering (Year, Venue, Citation Count).
 - **Smart Import**:
   - **PDF Discovery**: Automatically finds and attaches PDFs during import.
@@ -67,7 +67,7 @@
 - **AI-Powered Columns**: Define custom columns with AI prompts (e.g., "Methodology", "Sample Size").
 - **Inline Editing**: innovative inline editor for column titles and prompts.
 - **One-Click Generation**: Generate data for individual cells or entire columns instantly.
-- **Side Strip Actions**: Unified controls for adding columns, generating triggers, and settings.
+- **Side Strip Actions**: Unified controls for adding, removing columns, generating triggers, and settings.
 
 ### OCR & Text Extraction
 - **Flexible OCR Options**:
@@ -78,11 +78,15 @@
 
 ### Customizable AI
 - **Model Presets**: Pre-configured settings for popular providers:
-  - OpenAI (GPT-4o, o1)
-  - Anthropic (Claude Sonnet 3.5)
-  - Google (Gemini Pro)
+  - OpenAI (GPT-5, o3)
+  - Anthropic (Claude Sonnet 4.5)
+  - Google (Gemini 3 Pro)
   - DeepSeek, Mistral, Groq, OpenRouter
   - Local Models (Openai compatible endpoint, [Ollama](https://ollama.com), LM Studio)
+    - 12-16g Vram - Qwen3-4B-Thinking-2507
+    - 24-32g Vram - gpt-oss-20b
+    - 48-64g Vram - QwQ-32B
+    - 96-128g Vram - Qwen3-Next-80B-A3B-Instruct
 - **Per-Conversation Models**: Switch models dynamically based on the task complexity.
 
 ---
