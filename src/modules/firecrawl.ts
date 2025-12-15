@@ -72,9 +72,8 @@ class FirecrawlService {
         return {
             apiKey: Zotero.Prefs.get(`${prefPrefix}.firecrawlApiKey`) as string || "",
             apiUrl: Zotero.Prefs.get(`${prefPrefix}.firecrawlApiUrl`) as string
-                || "https://api.firecrawl.dev/v2 or http://localhost:3002/v2 ",
-            searchLimit: (Zotero.Prefs.get(`${prefPrefix}.firecrawlSearchLimit`) as number) || 3,
-            maxConcurrent: (Zotero.Prefs.get(`${prefPrefix}.firecrawlMaxConcurrent`) as number) || 3
+                || "https://api.firecrawl.dev/v2 or http://localhost:3002/v2",
+            searchLimit: (Zotero.Prefs.get(`${prefPrefix}.firecrawlSearchLimit`) as number) || 3
         };
     }
 
@@ -83,13 +82,6 @@ class FirecrawlService {
      */
     getSearchLimit(): number {
         return this.getConfig().searchLimit;
-    }
-
-    /**
-     * Get max concurrent requests setting
-     */
-    getMaxConcurrent(): number {
-        return this.getConfig().maxConcurrent;
     }
 
     /**
@@ -223,7 +215,7 @@ class FirecrawlService {
                 method: "POST",
                 body: JSON.stringify({
                     query,
-                    limit: 5,
+                    limit: this.getSearchLimit(),
                     categories: ["research", "pdf"],
                     scrapeOptions: {
                         formats: ["markdown", "links"]
@@ -313,7 +305,7 @@ class FirecrawlService {
                 method: "POST",
                 body: JSON.stringify({
                     query,
-                    limit: 5,
+                    limit: this.getSearchLimit(),
                     categories: ["pdf"],
                     scrapeOptions: {
                         formats: ["links"]
@@ -344,7 +336,7 @@ class FirecrawlService {
                 method: "POST",
                 body: JSON.stringify({
                     query,
-                    limit: 5,
+                    limit: this.getSearchLimit(),
                     categories: ["research"],
                     scrapeOptions: {
                         formats: ["markdown", "links"]

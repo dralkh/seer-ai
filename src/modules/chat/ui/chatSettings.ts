@@ -255,17 +255,8 @@ export function showChatSettings(doc: Document, anchor: HTMLElement, options: Ch
             paddingLeft: '4px'
         });
 
-        limitContainer.innerHTML = '';
+        limitContainer.innerHTML = '<span>Results:</span>';
         const prefPrefix = 'extensions.seerai';
-
-        // --- Limit Input ---
-        const limitGroup = doc.createElement('div');
-        limitGroup.style.display = 'flex';
-        limitGroup.style.alignItems = 'center';
-        limitGroup.style.gap = '4px';
-
-        const limitLabel = doc.createElement('span');
-        limitLabel.innerText = 'Limit:';
 
         const limitInput = doc.createElement('input');
         limitInput.type = 'number';
@@ -275,7 +266,7 @@ export function showChatSettings(doc: Document, anchor: HTMLElement, options: Ch
         limitInput.value = String(currentLimit);
 
         Object.assign(limitInput.style, {
-            width: '32px',
+            width: '40px',
             padding: '2px',
             fontSize: '11px',
             border: '1px solid var(--border-primary)',
@@ -291,46 +282,7 @@ export function showChatSettings(doc: Document, anchor: HTMLElement, options: Ch
         });
         limitInput.addEventListener('click', (e) => e.stopPropagation());
 
-        limitGroup.appendChild(limitLabel);
-        limitGroup.appendChild(limitInput);
-        limitContainer.appendChild(limitGroup);
-
-        // --- Concurrent Input ---
-        const concurrentGroup = doc.createElement('div');
-        concurrentGroup.style.display = 'flex';
-        concurrentGroup.style.alignItems = 'center';
-        concurrentGroup.style.gap = '4px';
-
-        const concurrentLabel = doc.createElement('span');
-        concurrentLabel.innerText = 'Max:';
-
-        const concurrentInput = doc.createElement('input');
-        concurrentInput.type = 'number';
-        concurrentInput.min = '1';
-        concurrentInput.max = '5';
-        const currentConcurrent = Zotero.Prefs.get(`${prefPrefix}.firecrawlMaxConcurrent`) || 3;
-        concurrentInput.value = String(currentConcurrent);
-
-        Object.assign(concurrentInput.style, {
-            width: '32px',
-            padding: '2px',
-            fontSize: '11px',
-            border: '1px solid var(--border-primary)',
-            borderRadius: '4px',
-            textAlign: 'center'
-        });
-
-        concurrentInput.addEventListener('change', () => {
-            const val = parseInt(concurrentInput.value);
-            if (val >= 1 && val <= 5) {
-                Zotero.Prefs.set(`${prefPrefix}.firecrawlMaxConcurrent`, val);
-            }
-        });
-        concurrentInput.addEventListener('click', (e) => e.stopPropagation());
-
-        concurrentGroup.appendChild(concurrentLabel);
-        concurrentGroup.appendChild(concurrentInput);
-        limitContainer.appendChild(concurrentGroup);
+        limitContainer.appendChild(limitInput);
 
         webSection.appendChild(limitContainer);
         body.appendChild(webSection);

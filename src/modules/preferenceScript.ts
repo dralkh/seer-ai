@@ -217,7 +217,6 @@ function bindPrefEvents() {
   bindInput(`zotero-prefpane-${config.addonRef}-firecrawlApiKey`, "firecrawlApiKey");
   bindInput(`zotero-prefpane-${config.addonRef}-firecrawlApiUrl`, "firecrawlApiUrl");
   bindInput(`zotero-prefpane-${config.addonRef}-firecrawlSearchLimit`, "firecrawlSearchLimit");
-  bindInput(`zotero-prefpane-${config.addonRef}-firecrawlMaxConcurrent`, "firecrawlMaxConcurrent");
 }
 
 /**
