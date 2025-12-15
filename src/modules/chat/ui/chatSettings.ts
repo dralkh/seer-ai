@@ -64,8 +64,10 @@ export function showChatSettings(doc: Document, anchor: HTMLElement, options: Ch
         overflowY: 'auto'
     });
 
-    // --- 1. Model Selection ---
+    // --- 1. Model Selection (Custom dropdown to avoid XUL <select> issues) ---
     const modelSection = doc.createElement('div');
+    modelSection.style.position = 'relative';
+
     const modelLabel = doc.createElement('div');
     modelLabel.innerText = 'AI Model';
     modelLabel.style.marginBottom = '4px';
@@ -73,38 +75,100 @@ export function showChatSettings(doc: Document, anchor: HTMLElement, options: Ch
     modelLabel.style.color = 'var(--text-secondary, #666)';
     modelSection.appendChild(modelLabel);
 
-    const modelSelect = doc.createElement('select');
-    Object.assign(modelSelect.style, {
-        width: '100%',
-        padding: '4px',
-        borderRadius: '4px',
-        fontSize: '12px',
-        border: '1px solid var(--border-primary)'
-    });
-
     const configs = getModelConfigs();
     const activeConfig = getActiveModelConfig();
 
+    // Custom dropdown button
+    const modelButton = doc.createElement('div');
+    Object.assign(modelButton.style, {
+        width: '100%',
+        padding: '6px 8px',
+        borderRadius: '4px',
+        fontSize: '12px',
+        border: '1px solid var(--border-primary)',
+        backgroundColor: 'var(--background-secondary, #f5f5f5)',
+        cursor: 'pointer',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        boxSizing: 'border-box'
+    });
+    modelButton.innerText = activeConfig?.name || (configs.length === 0 ? 'Default' : configs[0]?.name || 'Select Model');
+
+    // Dropdown arrow
+    const arrow = doc.createElement('span');
+    arrow.innerText = '▼';
+    arrow.style.fontSize = '8px';
+    arrow.style.marginLeft = '8px';
+    modelButton.appendChild(arrow);
+
+    // Dropdown options container
+    const optionsContainer = doc.createElement('div');
+    Object.assign(optionsContainer.style, {
+        position: 'absolute',
+        top: '100%',
+        left: '0',
+        right: '0',
+        backgroundColor: 'var(--background-primary, #fff)',
+        border: '1px solid var(--border-primary)',
+        borderRadius: '4px',
+        boxShadow: '0 4px 8px rgba(0,0,0,0.15)',
+        zIndex: '10005',
+        display: 'none',
+        maxHeight: '150px',
+        overflowY: 'auto'
+    });
+
+    // Populate options
     if (configs.length === 0) {
-        const opt = doc.createElement('option');
-        opt.value = 'default';
-        opt.innerText = 'Default';
-        modelSelect.appendChild(opt);
+        const optEl = doc.createElement('div');
+        Object.assign(optEl.style, {
+            padding: '8px 10px',
+            fontSize: '12px',
+            color: 'var(--text-secondary)'
+        });
+        optEl.innerText = 'No models configured';
+        optionsContainer.appendChild(optEl);
     } else {
         configs.forEach(cfg => {
-            const opt = doc.createElement('option');
-            opt.value = cfg.id;
-            opt.innerText = cfg.name;
-            if (activeConfig && cfg.id === activeConfig.id) opt.selected = true;
-            modelSelect.appendChild(opt);
+            const optEl = doc.createElement('div');
+            Object.assign(optEl.style, {
+                padding: '8px 10px',
+                fontSize: '12px',
+                cursor: 'pointer',
+                backgroundColor: (activeConfig && cfg.id === activeConfig.id) ? 'var(--background-secondary)' : 'transparent',
+                fontWeight: (activeConfig && cfg.id === activeConfig.id) ? '600' : 'normal'
+            });
+            optEl.innerText = cfg.name;
+
+            optEl.addEventListener('mouseenter', () => {
+                optEl.style.backgroundColor = 'var(--background-tertiary, #e0e0e0)';
+            });
+            optEl.addEventListener('mouseleave', () => {
+                optEl.style.backgroundColor = (activeConfig && cfg.id === activeConfig.id) ? 'var(--background-secondary)' : 'transparent';
+            });
+
+            optEl.addEventListener('click', (e) => {
+                e.stopPropagation();
+                setActiveModelId(cfg.id);
+                modelButton.childNodes[0].textContent = cfg.name;
+                optionsContainer.style.display = 'none';
+                Zotero.debug(`[seerai] Model changed to ${cfg.id} (${cfg.name})`);
+            });
+
+            optionsContainer.appendChild(optEl);
         });
     }
 
-    modelSelect.addEventListener('change', () => {
-        setActiveModelId(modelSelect.value);
-        Zotero.debug(`[seerai] Model changed to ${modelSelect.value}`);
+    // Toggle dropdown
+    modelButton.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const isVisible = optionsContainer.style.display === 'block';
+        optionsContainer.style.display = isVisible ? 'none' : 'block';
     });
-    modelSection.appendChild(modelSelect);
+
+    modelSection.appendChild(modelButton);
+    modelSection.appendChild(optionsContainer);
     body.appendChild(modelSection);
 
     // --- 2. Context Mode ---

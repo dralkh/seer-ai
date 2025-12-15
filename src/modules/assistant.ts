@@ -404,26 +404,30 @@ function getSourceLinkForPaper(
  * Get PDF text for a Zotero item, auto-indexing if needed.
  * Uses Zotero 7 APIs: item.attachmentText, Zotero.FullText.indexItems()
  * 
- * Priority:
- * 1. Check for notes with matching title → use note content
- * 2. Try indexed PDF text → use attachmentText
- * 3. Auto-index unindexed PDF → then use text
- * 4. Return null if all fail (image-only PDF)
+ * Content Hierarchy:
+ * 1. ALL notes are always included
+ * 2. If a same-title note exists (contains OCR/extracted content), skip indexed PDF to avoid duplication
+ * 3. If NO same-title note exists, add indexed PDF text (auto-index if needed)
+ * 4. If no PDF found, just return notes content (or null if no notes either)
  * 
  * @param item - The parent Zotero item (regular item, not attachment)
- * @param maxLength - Maximum text length to return (default 15000)
+ * @param maxLength - Maximum text length to return (0 = no limit)
  * @param autoIndex - Whether to auto-index unindexed PDFs (default true)
- * @param checkNotesFirst - Whether to check for notes first (default true)
- * @returns PDF text, note content, or null if not available
+ * @param includeAllNotes - Whether to include all notes (default true)
+ * @returns Combined content from notes and/or PDF, or null if not available
  */
 async function getPdfTextForItem(
     item: Zotero.Item,
-    maxLength: number = 15000,
+    maxLength: number = 0,
     autoIndex: boolean = true,
-    checkNotesFirst: boolean = true
+    includeAllNotes: boolean = true
 ): Promise<string | null> {
-    // Check for existing notes with matching title first
-    if (checkNotesFirst && ocrService.hasExistingNote(item)) {
+    const parts: string[] = [];
+    let hasSameTitleNote = false;
+    const itemTitle = (item.getField('title') as string || '').toLowerCase().trim();
+
+    // Step 1: Always collect all notes
+    if (includeAllNotes) {
         const noteIds = item.getNotes();
         for (const noteId of noteIds) {
             const note = Zotero.Items.get(noteId);
@@ -431,56 +435,76 @@ async function getPdfTextForItem(
                 const noteHTML = note.getNote();
                 // Strip HTML tags to get plain text
                 const plainText = noteHTML.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+
                 if (plainText.length > 0) {
-                    Zotero.debug(`[seerai] Using existing note content for item ${item.id}`);
-                    return maxLength > 0 ? plainText.substring(0, maxLength) : plainText;
+                    // Get note title
+                    const noteTitle = (note.getNoteTitle() || '').toLowerCase().trim();
+
+                    // Check if this is a same-title note (contains extracted PDF content)
+                    if (noteTitle && itemTitle && noteTitle.includes(itemTitle.substring(0, Math.min(30, itemTitle.length)))) {
+                        hasSameTitleNote = true;
+                        Zotero.debug(`[seerai] Found same-title note for item ${item.id}`);
+                    }
+
+                    parts.push(`[Note: ${note.getNoteTitle() || 'Untitled Note'}]\n${plainText}`);
                 }
             }
         }
     }
 
-    // Try PDF attachments
-    const attachmentIds = item.getAttachments();
+    // Step 2: Add indexed PDF text ONLY if no same-title note exists (to avoid duplication)
+    if (!hasSameTitleNote) {
+        const attachmentIds = item.getAttachments();
 
-    for (const attId of attachmentIds) {
-        const att = Zotero.Items.get(attId);
-        if (!att || att.attachmentContentType !== 'application/pdf') continue;
+        for (const attId of attachmentIds) {
+            const att = Zotero.Items.get(attId);
+            if (!att || att.attachmentContentType !== 'application/pdf') continue;
 
-        try {
-            // Try Zotero 7 high-level API first (item.attachmentText is async getter)
-            let text = await (att as any).attachmentText;
+            try {
+                // Try Zotero 7 high-level API (item.attachmentText is async getter)
+                let text = await (att as any).attachmentText;
 
-            if (text && text.length > 0) {
-                Zotero.debug(`[seerai] Got indexed PDF text for attachment ${attId} (${text.length} chars)`);
-                return maxLength > 0 ? text.substring(0, maxLength) : text;
-            }
-
-            // Not indexed - try to index if autoIndex enabled
-            if (autoIndex) {
-                Zotero.debug(`[seerai] PDF not indexed, triggering indexing for attachment ${attId}`);
-
-                // Ensure DB is ready before indexing
-                await att.saveTx();
-
-                // Call the asynchronous indexer
-                await (Zotero.FullText as any).indexItems([attId]);
-
-                // Retry after indexing
-                text = await (att as any).attachmentText;
                 if (text && text.length > 0) {
-                    Zotero.debug(`[seerai] Indexing complete, got ${text.length} chars`);
-                    return maxLength > 0 ? text.substring(0, maxLength) : text;
+                    Zotero.debug(`[seerai] Got indexed PDF text for attachment ${attId} (${text.length} chars)`);
+                    parts.push(`[Indexed PDF Text]\n${text}`);
+                    break; // Only need one PDF's text
                 }
 
-                // If still empty after indexing, it's likely an image-only PDF
-                Zotero.debug(`[seerai] No text after indexing - likely image-only PDF`);
+                // Not indexed - try to index if autoIndex enabled
+                if (autoIndex) {
+                    Zotero.debug(`[seerai] PDF not indexed, triggering indexing for attachment ${attId}`);
+
+                    // Ensure DB is ready before indexing
+                    await att.saveTx();
+
+                    // Call the asynchronous indexer
+                    await (Zotero.FullText as any).indexItems([attId]);
+
+                    // Retry after indexing
+                    text = await (att as any).attachmentText;
+                    if (text && text.length > 0) {
+                        Zotero.debug(`[seerai] Indexing complete, got ${text.length} chars`);
+                        parts.push(`[Indexed PDF Text]\n${text}`);
+                        break;
+                    }
+
+                    Zotero.debug(`[seerai] No text after indexing - likely image-only PDF`);
+                }
+            } catch (e) {
+                Zotero.debug(`[seerai] Error getting PDF text for attachment ${attId}: ${e}`);
             }
-        } catch (e) {
-            Zotero.debug(`[seerai] Error getting PDF text for attachment ${attId}: ${e}`);
         }
+    } else {
+        Zotero.debug(`[seerai] Skipping indexed PDF for item ${item.id} - same-title note already included`);
     }
 
-    return null;
+    // Return combined content
+    if (parts.length === 0) {
+        return null;
+    }
+
+    const combined = parts.join('\n\n');
+    return maxLength > 0 ? combined.substring(0, maxLength) : combined;
 }
 
 interface FilterPreset {
@@ -9938,6 +9962,52 @@ Task: ${columnPrompt}`;
         });
         popover.appendChild(header);
 
+        // === AI Model Selection ===
+        const modelSection = ztoolkit.UI.createElement(doc, 'div', { styles: { display: "flex", flexDirection: "column", gap: "4px" } });
+        const modelLabel = ztoolkit.UI.createElement(doc, 'div', {
+            properties: { innerText: "AI Model" },
+            styles: { fontSize: "12px", fontWeight: "600" }
+        });
+        modelSection.appendChild(modelLabel);
+
+        const modelSelect = ztoolkit.UI.createElement(doc, 'select', {
+            styles: {
+                width: "100%",
+                padding: "6px 8px",
+                borderRadius: "4px",
+                fontSize: "12px",
+                border: "1px solid var(--border-primary)",
+                backgroundColor: "var(--background-secondary)",
+                color: "var(--text-primary)",
+                cursor: "pointer"
+            }
+        }) as HTMLSelectElement;
+
+        const configs = getModelConfigs();
+        const activeConfig = getActiveModelConfig();
+
+        if (configs.length === 0) {
+            const opt = doc.createElement('option');
+            opt.value = 'default';
+            opt.innerText = 'Default (configure in Settings)';
+            modelSelect.appendChild(opt);
+        } else {
+            configs.forEach(cfg => {
+                const opt = doc.createElement('option');
+                opt.value = cfg.id;
+                opt.innerText = cfg.name;
+                if (activeConfig && cfg.id === activeConfig.id) opt.selected = true;
+                modelSelect.appendChild(opt);
+            });
+        }
+
+        modelSelect.addEventListener('change', () => {
+            setActiveModelId(modelSelect.value);
+            Zotero.debug(`[seerai] Search: Model changed to ${modelSelect.value}`);
+        });
+        modelSection.appendChild(modelSelect);
+        popover.appendChild(modelSection);
+
         // === Response Length ===
         const lengthSection = ztoolkit.UI.createElement(doc, 'div', { styles: { display: "flex", flexDirection: "column", gap: "8px" } });
         const currentLen = searchColumnConfig.responseLength || 100;
@@ -10202,6 +10272,52 @@ Task: ${columnPrompt}`;
             styles: { fontSize: "14px", fontWeight: "600", borderBottom: "1px solid var(--border-primary)", paddingBottom: "8px" }
         });
         popover.appendChild(header);
+
+        // === AI Model Selection ===
+        const modelSection = ztoolkit.UI.createElement(doc, 'div', { styles: { display: "flex", flexDirection: "column", gap: "4px" } });
+        const modelLabel = ztoolkit.UI.createElement(doc, 'div', {
+            properties: { innerText: "AI Model" },
+            styles: { fontSize: "12px", fontWeight: "600" }
+        });
+        modelSection.appendChild(modelLabel);
+
+        const modelSelect = ztoolkit.UI.createElement(doc, 'select', {
+            styles: {
+                width: "100%",
+                padding: "6px 8px",
+                borderRadius: "4px",
+                fontSize: "12px",
+                border: "1px solid var(--border-primary)",
+                backgroundColor: "var(--background-secondary)",
+                color: "var(--text-primary)",
+                cursor: "pointer"
+            }
+        }) as HTMLSelectElement;
+
+        const configs = getModelConfigs();
+        const activeConfig = getActiveModelConfig();
+
+        if (configs.length === 0) {
+            const opt = doc.createElement('option');
+            opt.value = 'default';
+            opt.innerText = 'Default (configure in Settings)';
+            modelSelect.appendChild(opt);
+        } else {
+            configs.forEach(cfg => {
+                const opt = doc.createElement('option');
+                opt.value = cfg.id;
+                opt.innerText = cfg.name;
+                if (activeConfig && cfg.id === activeConfig.id) opt.selected = true;
+                modelSelect.appendChild(opt);
+            });
+        }
+
+        modelSelect.addEventListener('change', () => {
+            setActiveModelId(modelSelect.value);
+            Zotero.debug(`[seerai] Table: Model changed to ${modelSelect.value}`);
+        });
+        modelSection.appendChild(modelSelect);
+        popover.appendChild(modelSection);
 
         // === Response Length ===
         const lengthSection = ztoolkit.UI.createElement(doc, 'div', { styles: { display: "flex", flexDirection: "column", gap: "8px" } });
@@ -11698,17 +11814,23 @@ ${tableRows}  </tbody>
 
             for (const library of libraries) {
                 for (const tagName of tagNames) {
-                    // Get items with this tag
-                    const tagID = Zotero.Tags.getID(tagName);
-                    if (!tagID) continue;
+                    // Get items with this tag using Zotero Search
+                    try {
+                        const s = new Zotero.Search({ libraryID: library.libraryID });
+                        s.addCondition('tag', 'is', tagName);
+                        s.addCondition('itemType', 'isNot', 'attachment');
+                        s.addCondition('itemType', 'isNot', 'note');
+                        const itemIDs = await s.search();
 
-                    const itemIDs = await Zotero.Tags.getTagItems(library.libraryID, tagID);
-                    for (const itemID of itemIDs) {
-                        const item = Zotero.Items.get(itemID);
-                        if (item && item.isRegularItem()) {
-                            await this.addItemWithNotes(item);
-                            addedCount++;
+                        for (const itemID of itemIDs) {
+                            const item = Zotero.Items.get(itemID);
+                            if (item && item.isRegularItem()) {
+                                await this.addItemWithNotes(item);
+                                addedCount++;
+                            }
                         }
+                    } catch (e) {
+                        Zotero.debug(`[seerai] Error searching for tag "${tagName}": ${e}`);
                     }
                 }
             }
@@ -12399,7 +12521,10 @@ ${tableRows}  </tbody>
             }]
         });
 
-        // Clear button
+        // Clear button with two-click confirmation
+        let clearConfirmState = false;
+        let clearConfirmTimeout: ReturnType<typeof setTimeout> | null = null;
+
         const clearBtn = ztoolkit.UI.createElement(doc, "button", {
             properties: { innerText: "🗑", title: "Clear Chat" },
             styles: {
@@ -12413,17 +12538,48 @@ ${tableRows}  </tbody>
                 cursor: "pointer",
                 display: "flex",
                 alignItems: "center",
-                justifyContent: "center"
+                justifyContent: "center",
+                transition: "all 0.2s ease"
             },
             listeners: [{
                 type: "click",
                 listener: async () => {
-                    if (doc.defaultView && !doc.defaultView.confirm("Clear chat history?")) return;
-                    conversationMessages = [];
-                    if (messagesArea) messagesArea.innerHTML = "";
-                    try {
-                        await getMessageStore().clearMessages();
-                    } catch (e) { Zotero.debug(`[seerai] Error clearing message store: ${e}`); }
+                    if (!clearConfirmState) {
+                        // First click: enter confirmation state
+                        clearConfirmState = true;
+                        (clearBtn as HTMLElement).innerText = "Clear?";
+                        (clearBtn as HTMLElement).style.backgroundColor = "#ffebee";
+                        (clearBtn as HTMLElement).style.borderColor = "#c62828";
+                        (clearBtn as HTMLElement).style.color = "#c62828";
+                        (clearBtn as HTMLElement).title = "Click again to confirm";
+
+                        // Reset after 3 seconds if not clicked
+                        clearConfirmTimeout = setTimeout(() => {
+                            clearConfirmState = false;
+                            (clearBtn as HTMLElement).innerText = "🗑";
+                            (clearBtn as HTMLElement).style.backgroundColor = "var(--background-secondary)";
+                            (clearBtn as HTMLElement).style.borderColor = "var(--border-primary)";
+                            (clearBtn as HTMLElement).style.color = "var(--text-secondary)";
+                            (clearBtn as HTMLElement).title = "Clear Chat";
+                        }, 3000);
+                    } else {
+                        // Second click: perform clear
+                        if (clearConfirmTimeout) clearTimeout(clearConfirmTimeout);
+                        clearConfirmState = false;
+
+                        conversationMessages = [];
+                        if (messagesArea) messagesArea.innerHTML = "";
+                        try {
+                            await getMessageStore().clearMessages();
+                        } catch (e) { Zotero.debug(`[seerai] Error clearing message store: ${e}`); }
+
+                        // Reset button appearance
+                        (clearBtn as HTMLElement).innerText = "🗑";
+                        (clearBtn as HTMLElement).style.backgroundColor = "var(--background-secondary)";
+                        (clearBtn as HTMLElement).style.borderColor = "var(--border-primary)";
+                        (clearBtn as HTMLElement).style.color = "var(--text-secondary)";
+                        (clearBtn as HTMLElement).title = "Clear Chat";
+                    }
                 }
             }]
         });
@@ -12965,23 +13121,220 @@ Be concise, accurate, and helpful. When referencing papers, cite them by title o
                 else if (item.type === 'table') {
                     const tableConfig = storedTables.find(t => t.id === item.id);
                     if (tableConfig) {
-                        context += `\n\n--- Table Context: ${tableConfig.name} ---`;
-                        context += `\nColumns: ${tableConfig.columns.map((c: any) => c.title).join(', ')}`;
-                        context += `\nContains ${tableConfig.addedPaperIds.length} papers.`;
-                        // List some papers to give context
-                        const previewLimit = 20;
-                        const previewIds = tableConfig.addedPaperIds.slice(0, previewLimit);
-                        const titles = previewIds.map((id: number) => Zotero.Items.get(id)?.getField('title')).filter(Boolean);
-                        if (titles.length > 0) {
-                            context += `\nPapers:\n- ${titles.join('\n- ')}`;
-                        }
-                        if (tableConfig.addedPaperIds.length > previewLimit) {
-                            context += `\n...and ${tableConfig.addedPaperIds.length - previewLimit} more.`;
+                        context += `\n\n--- Table: ${tableConfig.name} ---`;
+
+                        // List column definitions
+                        const columnNames = tableConfig.columns.map((c: any) => c.name || c.title);
+                        context += `\nColumns: ${columnNames.join(', ')}`;
+                        context += `\nTotal papers: ${tableConfig.addedPaperIds.length}`;
+
+                        // Include actual table data (paper rows with all generated column values)
+                        const generatedData = tableConfig.generatedData || {};
+
+                        if (tableConfig.addedPaperIds.length > 0) {
+                            context += `\n\n=== Table Data ===`;
+
+                            // Process all papers in the table (no limit)
+                            for (const paperId of tableConfig.addedPaperIds) {
+                                const zoteroItem = Zotero.Items.get(paperId);
+                                if (!zoteroItem) continue;
+
+                                const title = zoteroItem.getField('title') || 'Untitled';
+                                const creators = zoteroItem.getCreators();
+                                const authorStr = creators.length > 0
+                                    ? creators.map((c: any) => c.lastName || c.name).slice(0, 3).join(', ')
+                                    + (creators.length > 3 ? ' et al.' : '')
+                                    : '';
+                                const year = zoteroItem.getField('year') || zoteroItem.getField('date')?.substring(0, 4) || '';
+
+                                context += `\n\n--- Paper: ${title} ---`;
+                                if (authorStr) context += `\nAuthors: ${authorStr}`;
+                                if (year) context += ` (${year})`;
+
+                                // Include all generated column values for this paper
+                                const paperData = generatedData[paperId];
+                                if (paperData && Object.keys(paperData).length > 0) {
+                                    context += `\n`;
+                                    for (const column of tableConfig.columns) {
+                                        const columnId = column.id;
+                                        const columnName = column.name || column.title || columnId;
+                                        const value = paperData[columnId];
+
+                                        // Skip standard columns that are just metadata
+                                        if (['title', 'author', 'year', 'sources'].includes(columnId)) continue;
+
+                                        if (value) {
+                                            context += `\n${columnName}: ${value}`;
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
                 else if (item.type === 'tag') {
-                    context += `\n\nContext Instruction: Focus on papers tagged with "${item.displayName}".`;
+                    const tagName = item.displayName;
+                    context += `\n\n--- Tag: ${tagName} ---`;
+
+                    // Fetch all papers with this tag and include their content
+                    try {
+                        const libraryID = Zotero.Libraries.userLibraryID;
+                        const s = new Zotero.Search({ libraryID });
+                        s.addCondition('tag', 'is', tagName);
+                        s.addCondition('itemType', 'isNot', 'attachment');
+                        s.addCondition('itemType', 'isNot', 'note');
+                        const itemIDs = await s.search();
+
+                        if (itemIDs.length === 0) {
+                            context += `\n(No papers found with this tag)`;
+                        } else {
+                            context += `\nPapers with this tag: ${itemIDs.length}`;
+
+                            // Process all papers with this tag
+                            for (const itemID of itemIDs) {
+                                const zoteroItem = Zotero.Items.get(itemID);
+                                if (!zoteroItem || !zoteroItem.isRegularItem()) continue;
+
+                                const title = zoteroItem.getField('title');
+                                context += `\n\n--- Paper: ${title} ---`;
+
+                                const year = zoteroItem.getField('date');
+                                if (year) context += ` (${year})`;
+
+                                const creators = zoteroItem.getCreators().map((c: any) => `${c.firstName} ${c.lastName}`);
+                                if (creators.length > 0) context += `\nAuthors: ${creators.join(', ')}`;
+
+                                const abstract = zoteroItem.getField('abstractNote');
+                                if (abstract) context += `\nAbstract: ${abstract}`;
+
+                                // Fetch content with hierarchy: All Notes + (Indexed PDF only if no same-title note)
+                                try {
+                                    const itemContent = await getPdfTextForItem(zoteroItem, 0, true, true);
+                                    if (itemContent) {
+                                        context += `\n\nContent:\n${itemContent}`;
+                                    }
+                                } catch (e) {
+                                    Zotero.debug(`[seerai] Error fetching content for tagged item ${itemID}: ${e}`);
+                                }
+                            }
+                        }
+                    } catch (e) {
+                        Zotero.debug(`[seerai] Error fetching papers for tag "${tagName}": ${e}`);
+                        context += `\n(Error fetching papers for this tag)`;
+                    }
+                }
+                else if (item.type === 'collection') {
+                    const collectionId = item.id as number;
+                    const collectionName = item.displayName;
+                    context += `\n\n--- Collection: ${collectionName} ---`;
+
+                    // Fetch all papers in this collection and include their content
+                    try {
+                        const collection = Zotero.Collections.get(collectionId);
+                        if (collection) {
+                            const itemIDs = collection.getChildItems(true); // true = recursive
+
+                            // Filter to regular items only
+                            const regularItems: Zotero.Item[] = [];
+                            for (const id of itemIDs) {
+                                const zItem = Zotero.Items.get(id);
+                                if (zItem && zItem.isRegularItem()) {
+                                    regularItems.push(zItem);
+                                }
+                            }
+
+                            if (regularItems.length === 0) {
+                                context += `\n(No papers found in this collection)`;
+                            } else {
+                                context += `\nPapers in collection: ${regularItems.length}`;
+
+                                // Process all papers in this collection
+                                for (const zoteroItem of regularItems) {
+                                    const title = zoteroItem.getField('title');
+                                    context += `\n\n--- Paper: ${title} ---`;
+
+                                    const year = zoteroItem.getField('date');
+                                    if (year) context += ` (${year})`;
+
+                                    const creators = zoteroItem.getCreators().map((c: any) => `${c.firstName} ${c.lastName}`);
+                                    if (creators.length > 0) context += `\nAuthors: ${creators.join(', ')}`;
+
+                                    const abstract = zoteroItem.getField('abstractNote');
+                                    if (abstract) context += `\nAbstract: ${abstract}`;
+
+                                    // Fetch content with hierarchy: All Notes + (Indexed PDF only if no same-title note)
+                                    try {
+                                        const itemContent = await getPdfTextForItem(zoteroItem, 0, true, true);
+                                        if (itemContent) {
+                                            context += `\n\nContent:\n${itemContent}`;
+                                        }
+                                    } catch (e) {
+                                        Zotero.debug(`[seerai] Error fetching content for collection item ${zoteroItem.id}: ${e}`);
+                                    }
+                                }
+                            }
+                        } else {
+                            context += `\n(Collection not found)`;
+                        }
+                    } catch (e) {
+                        Zotero.debug(`[seerai] Error fetching papers for collection "${collectionName}": ${e}`);
+                        context += `\n(Error fetching papers for this collection)`;
+                    }
+                }
+                else if (item.type === 'author') {
+                    const authorName = item.displayName;
+                    context += `\n\n--- Author: ${authorName} ---`;
+
+                    // Fetch all papers by this author and include their content
+                    try {
+                        const libraryID = Zotero.Libraries.userLibraryID;
+                        const s = new Zotero.Search({ libraryID });
+                        s.addCondition('creator', 'contains', authorName);
+                        s.addCondition('itemType', 'isNot', 'attachment');
+                        s.addCondition('itemType', 'isNot', 'note');
+                        const itemIDs = await s.search();
+
+                        if (itemIDs.length === 0) {
+                            context += `\n(No papers found by this author)`;
+                        } else {
+                            context += `\nPapers by this author: ${itemIDs.length}`;
+
+                            // Process all papers by this author
+                            for (const itemID of itemIDs) {
+                                const zoteroItem = Zotero.Items.get(itemID);
+                                if (!zoteroItem || !zoteroItem.isRegularItem()) continue;
+
+                                const title = zoteroItem.getField('title');
+                                context += `\n\n--- Paper: ${title} ---`;
+
+                                const year = zoteroItem.getField('date');
+                                if (year) context += ` (${year})`;
+
+                                const creators = zoteroItem.getCreators().map((c: any) => `${c.firstName} ${c.lastName}`);
+                                if (creators.length > 0) context += `\nAuthors: ${creators.join(', ')}`;
+
+                                const abstract = zoteroItem.getField('abstractNote');
+                                if (abstract) context += `\nAbstract: ${abstract}`;
+
+                                // Fetch content with hierarchy: All Notes + (Indexed PDF only if no same-title note)
+                                try {
+                                    const itemContent = await getPdfTextForItem(zoteroItem, 0, true, true);
+                                    if (itemContent) {
+                                        context += `\n\nContent:\n${itemContent}`;
+                                    }
+                                } catch (e) {
+                                    Zotero.debug(`[seerai] Error fetching content for author item ${itemID}: ${e}`);
+                                }
+                            }
+                        }
+                    } catch (e) {
+                        Zotero.debug(`[seerai] Error fetching papers for author "${authorName}": ${e}`);
+                        context += `\n(Error fetching papers for this author)`;
+                    }
+                }
+                else if (item.type === 'topic') {
+                    // Topic is a user-specified keyword/focus area
+                    context += `\n\nFocus Topic: "${item.displayName}" - Please consider this topic when answering.`;
                 }
             }
 
@@ -13001,12 +13354,8 @@ Be concise, accurate, and helpful. When referencing papers, cite them by title o
                                 webContext += `\n${result.description}`;
                             }
                             if (result.markdown) {
-                                // Truncate to avoid token limits
-                                const truncated = result.markdown.slice(0, 2000);
-                                webContext += `\n${truncated}`;
-                                if (result.markdown.length > 2000) {
-                                    webContext += "\n[Content truncated...]";
-                                }
+                                // Include full web content (no limit)
+                                webContext += `\n${result.markdown}`;
                             }
                         }
                         Zotero.debug(`[seerai] Added ${webResults.length} web results to context`);

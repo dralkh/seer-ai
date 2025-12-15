@@ -266,40 +266,60 @@ export async function queryAuthors(query: string, limit: number = 20): Promise<A
     const lowerQuery = query.toLowerCase();
 
     try {
-        // Use SQL for efficient author aggregation
         const libraryID = Zotero.Libraries.userLibraryID;
-        const sql = `
-            SELECT DISTINCT 
-                c.lastName, 
-                c.firstName,
-                COUNT(DISTINCT ic.itemID) as itemCount
-            FROM creators c
-            JOIN itemCreators ic ON c.creatorID = ic.creatorID
-            JOIN items i ON ic.itemID = i.itemID
-            WHERE i.libraryID = ?
-            GROUP BY c.lastName, c.firstName
-            ORDER BY itemCount DESC
-            LIMIT 200
-        `;
 
-        const rows = await Zotero.DB.queryAsync(sql, [libraryID]);
+        // Use Zotero Search to get all regular items, then extract unique authors
+        const s = new Zotero.Search({ libraryID });
+        s.addCondition('itemType', 'isNot', 'attachment');
+        s.addCondition('itemType', 'isNot', 'note');
+        const itemIDs = await s.search();
 
-        for (const row of rows || []) {
-            const fullName = `${row.firstName || ''} ${row.lastName || ''}`.trim();
+        // Collect all authors with their item counts
+        const authorCounts: Map<string, { firstName: string; lastName: string; count: number }> = new Map();
+
+        for (const itemID of itemIDs) {
+            const item = Zotero.Items.get(itemID);
+            if (!item || !item.isRegularItem()) continue;
+
+            const creators = item.getCreators();
+            for (const creator of creators) {
+                // Include all creators (authors, editors, etc.)
+
+                const key = `${creator.lastName || ''}-${creator.firstName || ''}`.toLowerCase();
+                const existing = authorCounts.get(key);
+
+                if (existing) {
+                    existing.count++;
+                } else {
+                    authorCounts.set(key, {
+                        firstName: creator.firstName || '',
+                        lastName: creator.lastName || '',
+                        count: 1
+                    });
+                }
+            }
+        }
+
+        // Sort by item count descending
+        const sortedAuthors = Array.from(authorCounts.entries())
+            .sort((a, b) => b[1].count - a[1].count);
+
+        for (const [key, author] of sortedAuthors) {
+            const fullName = `${author.firstName} ${author.lastName}`.trim();
 
             if (query && !fullName.toLowerCase().includes(lowerQuery)) {
                 continue;
             }
 
             results.push({
-                id: `${row.lastName}-${row.firstName}`,
+                id: key,
                 title: fullName || 'Unknown Author',
-                subtitle: `${row.itemCount} paper${row.itemCount > 1 ? 's' : ''}`,
+                subtitle: `${author.count} paper${author.count > 1 ? 's' : ''}`,
                 icon: '👤',
                 type: 'author',
                 data: {
-                    firstName: row.firstName,
-                    lastName: row.lastName,
+                    firstName: author.firstName,
+                    lastName: author.lastName,
                 },
             });
 
@@ -396,22 +416,25 @@ export async function queryTags(query: string, limit: number = 20): Promise<Auto
         const tags = await Zotero.Tags.getAll(libraryID);
         const colors = Zotero.Tags.getColors(libraryID);
 
-        // Get tag usage counts
+        // Get tag usage counts using Zotero Search for reliability
         const tagCounts: Map<string, number> = new Map();
-        const sql = `
-            SELECT t.name, COUNT(*) as count
-            FROM tags t
-            JOIN itemTags it ON t.tagID = it.tagID
-            JOIN items i ON it.itemID = i.itemID
-            WHERE i.libraryID = ?
-            GROUP BY t.name
-            ORDER BY count DESC
-        `;
-        const rows = await Zotero.DB.queryAsync(sql, [libraryID]);
-        if (rows) {
-            for (const row of rows) {
-                tagCounts.set((row as { name: string; count: number }).name, (row as { name: string; count: number }).count);
+        try {
+            // Use Zotero Search to count items per tag
+            for (const tag of tags) {
+                const tagName = typeof tag === 'string' ? tag : tag.tag;
+                try {
+                    const s = new Zotero.Search({ libraryID });
+                    s.addCondition('tag', 'is', tagName);
+                    s.addCondition('itemType', 'isNot', 'attachment');
+                    s.addCondition('itemType', 'isNot', 'note');
+                    const itemIDs = await s.search();
+                    tagCounts.set(tagName, itemIDs.length);
+                } catch (e) {
+                    tagCounts.set(tagName, 0);
+                }
             }
+        } catch (e) {
+            Zotero.debug(`[seerai] Error getting tag counts: ${e}`);
         }
 
         for (const tag of tags) {
@@ -465,7 +488,7 @@ export async function queryTopics(query: string, limit: number = 10): Promise<Au
     // For topics, we'll provide recent/suggested topics from preferences
     try {
         const recentTopics: string[] = JSON.parse(
-            Zotero.Prefs.get('extensions.seer-ai.recentTopics') as string || '[]'
+            Zotero.Prefs.get('extensions.seerai.recentTopics') as string || '[]'
         );
 
         const lowerQuery = query.toLowerCase();
@@ -496,9 +519,20 @@ export async function queryTopics(query: string, limit: number = 10): Promise<Au
                 type: 'topic',
             });
         }
+
+        // If no results and no query, show a helpful hint
+        if (results.length === 0 && !query) {
+            results.push({
+                id: '_hint',
+                title: 'Type a topic to focus on...',
+                subtitle: 'e.g., methodology, results, limitations',
+                icon: '💡',
+                type: 'topic',
+            });
+        }
     } catch (error) {
         console.error('Error querying topics:', error);
-        // If no recent topics, just use the query
+        // If error and query provided, use it
         if (query) {
             results.push({
                 id: query,
@@ -507,11 +541,21 @@ export async function queryTopics(query: string, limit: number = 10): Promise<Au
                 icon: '🎯',
                 type: 'topic',
             });
+        } else {
+            // Show hint even on error
+            results.push({
+                id: '_hint',
+                title: 'Type a topic to focus on...',
+                subtitle: 'e.g., methodology, results, limitations',
+                icon: '💡',
+                type: 'topic',
+            });
         }
     }
 
     return results;
 }
+
 
 /**
  * Save a topic to recent topics
@@ -519,7 +563,7 @@ export async function queryTopics(query: string, limit: number = 10): Promise<Au
 export function saveRecentTopic(topic: string): void {
     try {
         const recentTopics: string[] = JSON.parse(
-            Zotero.Prefs.get('extensions.seer-ai.recentTopics') as string || '[]'
+            Zotero.Prefs.get('extensions.seerai.recentTopics') as string || '[]'
         );
 
         // Remove if exists, add to front
@@ -529,7 +573,7 @@ export function saveRecentTopic(topic: string): void {
         // Keep max 20
         const trimmed = filtered.slice(0, 20);
 
-        Zotero.Prefs.set('extensions.seer-ai.recentTopics', JSON.stringify(trimmed));
+        Zotero.Prefs.set('extensions.seerai.recentTopics', JSON.stringify(trimmed));
     } catch (error) {
         console.error('Error saving recent topic:', error);
     }

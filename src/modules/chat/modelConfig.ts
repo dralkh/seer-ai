@@ -66,13 +66,16 @@ export function getDefaultModelConfig(): AIModelConfig | undefined {
  * Get the currently active model ID
  */
 export function getActiveModelId(): string | undefined {
-    return Zotero.Prefs.get(ACTIVE_MODEL_KEY) as string | undefined;
+    const stored = Zotero.Prefs.get(ACTIVE_MODEL_KEY) as string | undefined;
+    Zotero.debug(`[seerai] getActiveModelId: key=${ACTIVE_MODEL_KEY}, value="${stored}"`);
+    return stored;
 }
 
 /**
  * Set the currently active model ID
  */
 export function setActiveModelId(id: string): void {
+    Zotero.debug(`[seerai] setActiveModelId: key=${ACTIVE_MODEL_KEY}, value="${id}"`);
     Zotero.Prefs.set(ACTIVE_MODEL_KEY, id);
 }
 
@@ -81,10 +84,16 @@ export function setActiveModelId(id: string): void {
  */
 export function getActiveModelConfig(): AIModelConfig | undefined {
     const activeId = getActiveModelId();
-    if (activeId) {
+    Zotero.debug(`[seerai] getActiveModelConfig: activeId="${activeId}", type=${typeof activeId}`);
+
+    // Check for non-empty string (activeId could be undefined, null, or empty string "")
+    if (activeId && activeId.trim() !== '') {
         const config = getModelConfig(activeId);
+        Zotero.debug(`[seerai] getActiveModelConfig: found config for activeId? ${!!config}`);
         if (config) return config;
     }
+
+    Zotero.debug(`[seerai] getActiveModelConfig: falling back to default`);
     return getDefaultModelConfig();
 }
 
