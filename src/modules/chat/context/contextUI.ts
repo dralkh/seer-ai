@@ -22,15 +22,43 @@ export function createContextChipsArea(doc: Document): HTMLElement {
         marginBottom: '6px'
     });
 
-    // Label
-    const label = doc.createElement('div');
-    Object.assign(label.style, {
+    // Label Container (Header)
+    const header = doc.createElement('div');
+    Object.assign(header.style, {
         width: '100%',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: '6px'
+    });
+
+    // Label Text
+    const label = doc.createElement('span');
+    Object.assign(label.style, {
         fontSize: '11px',
         color: 'var(--text-secondary, #666)',
-        marginBottom: '4px'
+        fontWeight: '600'
     });
-    container.appendChild(label);
+    header.appendChild(label);
+
+    // Clear All Button
+    const clearBtn = doc.createElement('span');
+    clearBtn.innerText = 'Clear All';
+    Object.assign(clearBtn.style, {
+        fontSize: '10px',
+        color: 'var(--text-tertiary, #888)',
+        cursor: 'pointer',
+        textDecoration: 'underline',
+        opacity: '0.8'
+    });
+    clearBtn.addEventListener('mouseenter', () => clearBtn.style.opacity = '1');
+    clearBtn.addEventListener('mouseleave', () => clearBtn.style.opacity = '0.8');
+    clearBtn.addEventListener('click', () => {
+        ChatContextManager.getInstance().clearAll();
+    });
+    header.appendChild(clearBtn);
+
+    container.appendChild(header);
 
     // Initial listener
     contextManager.addListener((items) => {
@@ -46,7 +74,7 @@ function updateChips(
     label: HTMLElement,
     items: ContextItem[]
 ) {
-    // Clear existing chips (keep label)
+    // Clear existing chips (keep header which is firstChild)
     while (container.childNodes.length > 1) {
         container.removeChild(container.lastChild as Node);
     }

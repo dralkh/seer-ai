@@ -12084,91 +12084,7 @@ ${tableRows}  </tbody>
             leftControls.appendChild(webSearchContainer);
         }
 
-        // Right side: Action buttons
-        const rightControls = ztoolkit.UI.createElement(doc, "div", {
-            styles: { display: "flex", gap: "6px" }
-        });
-
-        // Stop button
-        const stopBtn = ztoolkit.UI.createElement(doc, "button", {
-            properties: { innerText: "⏹ Stop", id: "stop-btn" },
-            styles: {
-                padding: "4px 10px",
-                fontSize: "11px",
-                border: "1px solid var(--button-stop-border)",
-                borderRadius: "4px",
-                backgroundColor: "var(--button-stop-background)",
-                color: "var(--button-stop-text)",
-                cursor: "pointer",
-                display: "none" // Hidden by default
-            },
-            listeners: [{
-                type: "click",
-                listener: () => {
-                    openAIService.abortRequest();
-                    this.isStreaming = false;
-                    (stopBtn as HTMLElement).style.display = "none";
-                }
-            }]
-        });
-
-        // Clear button
-        const clearBtn = ztoolkit.UI.createElement(doc, "button", {
-            properties: { innerText: "🗑 Clear" },
-            styles: {
-                padding: "4px 10px",
-                fontSize: "11px",
-                border: "1px solid var(--button-clear-border)",
-                borderRadius: "4px",
-                backgroundColor: "var(--button-clear-background)",
-                color: "var(--button-clear-text)",
-                cursor: "pointer"
-            },
-            listeners: [{
-                type: "click",
-                listener: async () => {
-                    conversationMessages = [];
-                    const messagesArea = container.querySelector("#assistant-messages-area");
-                    if (messagesArea) messagesArea.innerHTML = "";
-
-                    // Clear persistent storage
-                    try {
-                        await getMessageStore().clearMessages();
-                    } catch (e) {
-                        Zotero.debug(`[seerai] Error clearing message store: ${e}`);
-                    }
-
-                    Zotero.debug("[seerai] Chat history cleared");
-                }
-            }]
-        });
-
-        // Save button
-        const saveBtn = ztoolkit.UI.createElement(doc, "button", {
-            properties: { innerText: "💾 Save" },
-            styles: {
-                padding: "4px 10px",
-                fontSize: "11px",
-                border: "1px solid var(--button-save-border)",
-                borderRadius: "4px",
-                backgroundColor: "var(--button-save-background)",
-                color: "var(--button-save-text)",
-                cursor: "pointer"
-            },
-            listeners: [{
-                type: "click",
-                listener: async () => {
-                    await this.saveConversationAsNote();
-                }
-            }]
-        });
-
-        rightControls.appendChild(stopBtn);
-        rightControls.appendChild(clearBtn);
-        rightControls.appendChild(saveBtn);
-
-        controlsBar.appendChild(leftControls);
-        controlsBar.appendChild(rightControls);
+        // Right side removed (moved to input area)
         return controlsBar;
     }
 
@@ -12598,11 +12514,12 @@ ${tableRows}  </tbody>
             properties: { innerText: "➤ Send" },
             styles: {
                 padding: "8px 16px",
+                backgroundColor: "var(--accent-color, #007AFF)",
+                color: "#fff",
                 border: "none",
                 borderRadius: "6px",
-                backgroundColor: "var(--highlight-primary)",
-                color: "var(--highlight-text)",
                 cursor: "pointer",
+                fontWeight: "600",
                 fontSize: "13px"
             },
             listeners: [{
@@ -12610,13 +12527,81 @@ ${tableRows}  </tbody>
                 listener: () => {
                     if (!this.isStreaming) {
                         this.handleSendWithStreamingAndImages(
-                            input,
+                            input as unknown as HTMLInputElement,
                             messagesArea,
                             stateManager,
                             pastedImages,
                             () => { pastedImages.length = 0; updateImagePreview(); }
                         );
                     }
+                }
+            }]
+        });
+
+        // Stop button
+        const stopBtn = ztoolkit.UI.createElement(doc, "button", {
+            properties: { innerText: "⏹", id: "stop-btn", title: "Stop Generation" },
+            styles: {
+                padding: "8px 12px",
+                fontSize: "13px",
+                border: "1px solid var(--button-stop-border, #d32f2f)",
+                borderRadius: "6px",
+                backgroundColor: "var(--button-stop-background, #ffebee)",
+                color: "var(--button-stop-text, #c62828)",
+                cursor: "pointer",
+                display: "none"
+            },
+            listeners: [{
+                type: "click",
+                listener: () => {
+                    openAIService.abortRequest();
+                    this.isStreaming = false;
+                    (stopBtn as HTMLElement).style.display = "none";
+                }
+            }]
+        });
+
+        // Clear button
+        const clearBtn = ztoolkit.UI.createElement(doc, "button", {
+            properties: { innerText: "🗑", title: "Clear Chat" },
+            styles: {
+                padding: "8px 12px",
+                fontSize: "13px",
+                border: "1px solid var(--border-primary)",
+                borderRadius: "6px",
+                backgroundColor: "var(--background-secondary)",
+                color: "var(--text-secondary)",
+                cursor: "pointer"
+            },
+            listeners: [{
+                type: "click",
+                listener: async () => {
+                    if (doc.defaultView && !doc.defaultView.confirm("Clear chat history?")) return;
+                    conversationMessages = [];
+                    if (messagesArea) messagesArea.innerHTML = "";
+                    try {
+                        await getMessageStore().clearMessages();
+                    } catch (e) { Zotero.debug(`[seerai] Error clearing message store: ${e}`); }
+                }
+            }]
+        });
+
+        // Save button
+        const saveBtn = ztoolkit.UI.createElement(doc, "button", {
+            properties: { innerText: "💾", title: "Save Chat" },
+            styles: {
+                padding: "8px 12px",
+                fontSize: "13px",
+                border: "1px solid var(--border-primary)",
+                borderRadius: "6px",
+                backgroundColor: "var(--background-secondary)",
+                color: "var(--text-secondary)",
+                cursor: "pointer"
+            },
+            listeners: [{
+                type: "click",
+                listener: async () => {
+                    await this.saveConversationAsNote();
                 }
             }]
         });
@@ -12699,6 +12684,9 @@ ${tableRows}  </tbody>
         inputArea.appendChild(placeholderBtn);
         inputArea.appendChild(input);
         inputArea.appendChild(sendBtn);
+        inputArea.appendChild(stopBtn);
+        inputArea.appendChild(clearBtn);
+        inputArea.appendChild(saveBtn);
 
         inputContainer.appendChild(contextChipsArea);
         inputContainer.appendChild(imagePreviewArea);
