@@ -84,6 +84,9 @@ export interface TableConfig {
     // Filter settings
     filterLibraryId?: number | null;      // Filter to specific library
     filterCollectionId?: number | null;    // Filter to specific collection
+    // Pagination settings
+    pageSize: number;
+    currentPage: number;
     // Manually added papers (table is empty until user adds)
     addedPaperIds: number[];
     // Persisted generated data: { paperId: { columnId: value } }
@@ -110,6 +113,8 @@ export const defaultTableConfig: Omit<TableConfig, 'id' | 'createdAt' | 'updated
     responseLength: 100, // characters
     filterLibraryId: null,
     filterCollectionId: null,
+    pageSize: 25,
+    currentPage: 1,
     addedPaperIds: [], // Initially empty
 };
 
@@ -128,6 +133,11 @@ export interface TableData {
     selectedRowIds: Set<number>;
     isLoading: boolean;
     error?: string;
+    // Pagination metadata
+    totalRows: number;
+    totalPages: number;
+    currentPage: number;
+    pageSize: number;
 }
 
 // History entry for table configurations

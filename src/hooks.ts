@@ -83,7 +83,7 @@ async function onMainWindowLoad(win: _ZoteroTypes.MainWindow): Promise<void> {
       });
       menuItem.hidden = !hasPdf;
 
-      // Show search PDF menu for items without PDF but with identifiers
+      // Show search PDF menu for items without PDF but with identifiers or title
       const hasItemsWithoutPdf = items.some(item => {
         if (!item.isRegularItem()) return false;
         const attachments = item.getAttachments() || [];
@@ -93,12 +93,13 @@ async function onMainWindowLoad(win: _ZoteroTypes.MainWindow): Promise<void> {
             att.attachmentPath?.toLowerCase().endsWith('.pdf'));
         });
         if (hasPdfAttachment) return false;
-        // Check for identifiers
+        // Check for title (for SS title search + Firecrawl) OR identifiers
+        const title = item.getField('title');
         const doi = item.getField('DOI');
         const extra = item.getField('extra') as string || '';
         const hasArxiv = /arxiv:/i.test(extra);
         const hasPmid = /pmid:/i.test(extra);
-        return !!(doi || hasArxiv || hasPmid);
+        return !!(title || doi || hasArxiv || hasPmid);
       });
       searchPdfMenu.hidden = !hasItemsWithoutPdf;
     });
