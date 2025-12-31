@@ -3,6 +3,7 @@ import {
   OpenAIMessage,
   VisionMessage,
   VisionMessageContentPart,
+  ToolCall,
 } from "./openai";
 import { config } from "../../package.json";
 import {
@@ -16,6 +17,7 @@ import {
   ChatMessage,
   selectionConfigs,
   AIModelConfig,
+  ConversationMetadata,
 } from "./chat/types";
 import {
   getModelConfigs,
@@ -70,6 +72,9 @@ import { showChatSettings } from "./chat/ui/chatSettings";
 import { ChatContextManager } from "./chat/context/contextManager";
 import { createContextChipsArea } from "./chat/context/contextUI";
 import { ContextItem, ContextItemType } from "./chat/context/contextTypes";
+import { handleAgenticChat, isAgenticModeEnabled, AgentUIObserver, createToolExecutionUI, createToolProcessUI } from "./chat/agenticChat";
+import { ToolResult } from "./chat/tools/toolTypes";
+
 
 // Debounce timer for autocomplete
 let autocompleteTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -96,6 +101,29 @@ let currentTableData: TableData | null = null;
 let currentSearchState: SearchState = { ...defaultSearchState };
 let currentSearchResults: SemanticScholarPaper[] = [];
 let currentSearchToken: string | null = null; // For pagination
+
+/**
+ * Persistable state for an active agent operation
+ */
+interface AgentSession {
+  text: string;
+  fullResponse: string;
+  toolResults: { toolCall: ToolCall; result?: ToolResult; uiElement?: HTMLElement }[];
+  isThinking: boolean;
+  messagesArea: HTMLElement | null;
+  contentDiv: HTMLElement | null;
+  toolContainer: HTMLElement | null; // Keeps track of the tool list container for direct access
+  toolProcessState?: {
+    container: HTMLElement;
+    setThinking: () => void;
+    setCompleted: (count: number) => void;
+    setFailed: (error: string) => void;
+  };
+}
+
+let activeAgentSession: AgentSession | null = null;
+let currentDraftText = "";
+let currentPastedImages: { id: string; image: string; mimeType: string }[] = [];
 let totalSearchResults: number = 0; // Total count from API
 let isSearching = false;
 
@@ -111,6 +139,10 @@ const zoteroFindPdfCache: Map<string, string | null> = new Map();
 // Search analysis column configuration (persisted)
 let searchColumnConfig: SearchColumnConfig = { ...defaultSearchColumnConfig };
 let searchColumnConfigFilePath: string | null = null;
+
+// Chat History State
+let conversationHistory: ConversationMetadata[] = [];
+let isHistorySidebarVisible: boolean = true;
 
 /**
  * Use Zotero's Find Full Text resolver to fetch PDF for a paper.
@@ -436,8 +468,8 @@ export async function findAndAttachPdfForItem(
                 item.setField(
                   "extra",
                   currentExtra +
-                    (currentExtra ? "\n" : "") +
-                    `PMID: ${discoveredPmid}`,
+                  (currentExtra ? "\n" : "") +
+                  `PMID: ${discoveredPmid}`,
                 );
                 metadataUpdated = true;
               }
@@ -449,8 +481,8 @@ export async function findAndAttachPdfForItem(
                 item.setField(
                   "extra",
                   currentExtra +
-                    (currentExtra ? "\n" : "") +
-                    `arXiv: ${discoveredArxivId}`,
+                  (currentExtra ? "\n" : "") +
+                  `arXiv: ${discoveredArxivId}`,
                 );
                 metadataUpdated = true;
               }
@@ -616,121 +648,7 @@ function getSourceLinkForPaper(
  * @param includeAllNotes - Whether to include all notes (default true)
  * @returns Combined content from notes and/or PDF, or null if not available
  */
-async function getPdfTextForItem(
-  item: Zotero.Item,
-  maxLength: number = 0,
-  autoIndex: boolean = true,
-  includeAllNotes: boolean = true,
-): Promise<string | null> {
-  const parts: string[] = [];
-  let hasSameTitleNote = false;
-  const itemTitle = ((item.getField("title") as string) || "")
-    .toLowerCase()
-    .trim();
 
-  // Step 1: Always collect all notes
-  if (includeAllNotes) {
-    const noteIds = item.getNotes();
-    for (const noteId of noteIds) {
-      const note = Zotero.Items.get(noteId);
-      if (note) {
-        const noteHTML = note.getNote();
-        // Strip HTML tags to get plain text
-        const plainText = noteHTML
-          .replace(/<[^>]*>/g, " ")
-          .replace(/\s+/g, " ")
-          .trim();
-
-        if (plainText.length > 0) {
-          // Get note title
-          const noteTitle = (note.getNoteTitle() || "").toLowerCase().trim();
-
-          // Check if this is a same-title note (contains extracted PDF content)
-          if (
-            noteTitle &&
-            itemTitle &&
-            noteTitle.includes(
-              itemTitle.substring(0, Math.min(30, itemTitle.length)),
-            )
-          ) {
-            hasSameTitleNote = true;
-            Zotero.debug(`[seerai] Found same-title note for item ${item.id}`);
-          }
-
-          parts.push(
-            `[Note: ${note.getNoteTitle() || "Untitled Note"}]\n${plainText}`,
-          );
-        }
-      }
-    }
-  }
-
-  // Step 2: Add indexed PDF text ONLY if no same-title note exists (to avoid duplication)
-  if (!hasSameTitleNote) {
-    const attachmentIds = item.getAttachments();
-
-    for (const attId of attachmentIds) {
-      const att = Zotero.Items.get(attId);
-      if (!att || att.attachmentContentType !== "application/pdf") continue;
-
-      try {
-        // Try Zotero 7 high-level API (item.attachmentText is async getter)
-        let text = await (att as any).attachmentText;
-
-        if (text && text.length > 0) {
-          Zotero.debug(
-            `[seerai] Got indexed PDF text for attachment ${attId} (${text.length} chars)`,
-          );
-          parts.push(`[Indexed PDF Text]\n${text}`);
-          break; // Only need one PDF's text
-        }
-
-        // Not indexed - try to index if autoIndex enabled
-        if (autoIndex) {
-          Zotero.debug(
-            `[seerai] PDF not indexed, triggering indexing for attachment ${attId}`,
-          );
-
-          // Ensure DB is ready before indexing
-          await att.saveTx();
-
-          // Call the asynchronous indexer
-          await (Zotero.FullText as any).indexItems([attId]);
-
-          // Retry after indexing
-          text = await (att as any).attachmentText;
-          if (text && text.length > 0) {
-            Zotero.debug(
-              `[seerai] Indexing complete, got ${text.length} chars`,
-            );
-            parts.push(`[Indexed PDF Text]\n${text}`);
-            break;
-          }
-
-          Zotero.debug(
-            `[seerai] No text after indexing - likely image-only PDF`,
-          );
-        }
-      } catch (e) {
-        Zotero.debug(
-          `[seerai] Error getting PDF text for attachment ${attId}: ${e}`,
-        );
-      }
-    }
-  } else {
-    Zotero.debug(
-      `[seerai] Skipping indexed PDF for item ${item.id} - same-title note already included`,
-    );
-  }
-
-  // Return combined content
-  if (parts.length === 0) {
-    return null;
-  }
-
-  const combined = parts.join("\n\n");
-  return maxLength > 0 ? combined.substring(0, maxLength) : combined;
-}
 
 interface FilterPreset {
   name: string;
@@ -925,6 +843,133 @@ async function saveSearchColumnConfig(): Promise<void> {
 const ocrService = new OcrService();
 
 export class Assistant {
+  public static getOcrService() {
+    return ocrService;
+  }
+
+  public static async getPdfTextForItem(
+    item: Zotero.Item,
+    maxLength: number = 0,
+    autoIndex: boolean = true,
+    includeAllNotes: boolean = true,
+  ): Promise<string | null> {
+    const parts: string[] = [];
+    let hasSameTitleNote = false;
+    const itemTitle = ((item.getField("title") as string) || "")
+      .toLowerCase()
+      .trim();
+
+    // Step 1: Always collect all notes
+    if (includeAllNotes) {
+      const noteIds = item.getNotes();
+      for (const noteId of noteIds) {
+        const note = Zotero.Items.get(noteId);
+        if (note) {
+          const noteHTML = note.getNote();
+          // Strip HTML tags to get plain text
+          const plainText = noteHTML
+            .replace(/<[^>]*>/g, " ")
+            .replace(/\s+/g, " ")
+            .trim();
+
+          if (plainText.length > 0) {
+            // Get note title
+            const noteTitle = (note.getNoteTitle() || "").toLowerCase().trim();
+
+            // Check if this is a same-title note (contains extracted PDF content)
+            if (
+              noteTitle &&
+              itemTitle &&
+              noteTitle.includes(
+                itemTitle.substring(0, Math.min(30, itemTitle.length)),
+              )
+            ) {
+              hasSameTitleNote = true;
+              Zotero.debug(`[seerai] Found same-title note for item ${item.id}`);
+            }
+
+            parts.push(
+              `[Note: ${note.getNoteTitle() || "Untitled Note"}]\n${plainText}`,
+            );
+          }
+        }
+      }
+    }
+
+    // Step 2: Add indexed PDF text ONLY if no same-title note exists (to avoid duplication)
+    if (!hasSameTitleNote) {
+      const attachmentIds = item.getAttachments();
+
+      for (const attId of attachmentIds) {
+        const att = Zotero.Items.get(attId);
+        if (!att || att.attachmentContentType !== "application/pdf") continue;
+
+        try {
+          // Try Zotero 7 high-level API (item.attachmentText is async getter)
+          let text = await (att as any).attachmentText;
+
+          if (text && text.length > 0) {
+            Zotero.debug(
+              `[seerai] Got indexed PDF text for attachment ${attId} (${text.length} chars)`,
+            );
+            parts.push(`[Indexed PDF Text]\n${text}`);
+            break; // Only need one PDF's text
+          }
+
+          // Not indexed - try to index if autoIndex enabled
+          if (autoIndex) {
+            Zotero.debug(
+              `[seerai] PDF not indexed, triggering indexing for attachment ${attId}`,
+            );
+
+            // Ensure DB is ready before indexing
+            await att.saveTx();
+
+            // Call the asynchronous indexer
+            await (Zotero.FullText as any).indexItems([attId]);
+
+            // Retry after indexing
+            text = await (att as any).attachmentText;
+            if (text && text.length > 0) {
+              Zotero.debug(
+                `[seerai] Indexing complete, got ${text.length} chars`,
+              );
+              parts.push(`[Indexed PDF Text]\n${text}`);
+              break;
+            }
+
+            Zotero.debug(
+              `[seerai] No text after indexing - likely image-only PDF`,
+            );
+          }
+        } catch (e) {
+          Zotero.debug(
+            `[seerai] Error getting PDF text for attachment ${attId}: ${e}`,
+          );
+        }
+      }
+    } else {
+      Zotero.debug(
+        `[seerai] Skipping indexed PDF for item ${item.id} - same-title note already included`,
+      );
+    }
+
+    // Return combined content
+    if (parts.length === 0) {
+      return null;
+    }
+
+    const combined = parts.join("\n\n");
+    return maxLength > 0 ? combined.substring(0, maxLength) : combined;
+  }
+  public static getSearchState(): SearchState {
+    return currentSearchState;
+  }
+
+  public static setSearchState(state: SearchState): void {
+    currentSearchState = state;
+  }
+
   // UI state
   private static isStreaming: boolean = false;
 
@@ -1141,6 +1186,119 @@ export class Assistant {
   }
 
   /**
+   * Session Management
+   */
+
+  public static async loadHistory() {
+    try {
+      conversationHistory = await getMessageStore().getHistory();
+    } catch (e) {
+      Zotero.debug(`[seerai] Error loading history: ${e}`);
+    }
+  }
+
+  public static async createNewChat() {
+    const store = getMessageStore();
+    const newId = `chat_${Date.now()}`;
+
+    // Save current state if any before switching
+    if (conversationMessages.length > 0) {
+      const stateManager = getChatStateManager();
+      await store.saveConversationState(stateManager.getStates(), stateManager.getOptions());
+    }
+
+    store.setConversationId(newId);
+    conversationMessages = [];
+    resetChatStateManager();
+
+    // Initial history entry for the new chat
+    await store.updateConversationMetadata({
+      id: newId,
+      title: "New Chat",
+      messageCount: 0,
+      preview: "Start a new conversation..."
+    });
+
+    await this.loadHistory();
+
+    if (currentContainer && currentItem) {
+      this.renderInterface(currentContainer, currentItem);
+    }
+  }
+
+  public static async loadChat(id: string) {
+    const store = getMessageStore();
+
+    // Save current state before switching
+    if (conversationMessages.length > 0) {
+      const stateManager = getChatStateManager();
+      await store.saveConversationState(stateManager.getStates(), stateManager.getOptions());
+    }
+
+    store.setConversationId(id);
+
+    // Load messages
+    conversationMessages = await store.loadMessages();
+
+    // Load state
+    const savedState = await store.getConversationState();
+    resetChatStateManager();
+    const stateManager = getChatStateManager();
+    if (savedState) {
+      stateManager.fromJSON(savedState);
+    }
+
+    if (currentContainer && currentItem) {
+      this.renderInterface(currentContainer, currentItem);
+    }
+  }
+
+  public static async deleteChat(id: string) {
+    const store = getMessageStore();
+    await store.deleteConversation(id);
+
+    // If the deleted chat was the current one, create a new one or load the most recent
+    if (store.getConversationId() === id) {
+      const history = await store.getHistory();
+      if (history.length > 0) {
+        await this.loadChat(history[0].id);
+      } else {
+        await this.createNewChat();
+      }
+    } else {
+      await this.loadHistory();
+      if (currentContainer && currentItem) {
+        this.renderInterface(currentContainer, currentItem);
+      }
+    }
+  }
+
+  public static async updateConversationTitle(firstMessage: string) {
+    const store = getMessageStore();
+    const currentId = store.getConversationId();
+    const history = await store.getHistory();
+    const conv = history.find(h => h.id === currentId);
+
+    if (conv && (conv.title === "New Chat" || !conv.title)) {
+      // Simple auto-titling: use first 30 chars of the message
+      let newTitle = firstMessage.trim().slice(0, 40);
+      if (firstMessage.length > 40) newTitle += "...";
+
+      await store.updateConversationMetadata({
+        id: currentId,
+        title: newTitle
+      });
+
+      await this.loadHistory();
+
+      // Re-render to show new title in sidebar
+      if (currentContainer && currentItem) {
+        this.renderInterface(currentContainer, currentItem);
+      }
+    }
+  }
+
+  /**
    * Main interface renderer
    */
   private static async renderInterface(
@@ -1166,26 +1324,40 @@ export class Assistant {
 
     const stateManager = getChatStateManager();
 
-    // Load persisted messages if not already loaded
+    // Load history and persisted messages if not already loaded
+    if (conversationHistory.length === 0) {
+      await this.loadHistory();
+    }
+
     if (conversationMessages.length === 0) {
       try {
-        const messageStore = getMessageStore();
-        conversationMessages = await messageStore.loadMessages();
+        const store = getMessageStore();
+        // If history exists, load the most recent one if no ID is set
+        if (conversationHistory.length > 0 && store.getConversationId() === "default") {
+          store.setConversationId(conversationHistory[0].id);
+        }
+        conversationMessages = await store.loadMessages();
+
+        // Also load state for this chat
+        const savedState = await store.getConversationState();
+        if (savedState) {
+          stateManager.fromJSON(savedState);
+        }
+
         Zotero.debug(
-          `[seerai] Loaded ${conversationMessages.length} messages from storage`,
+          `[seerai] Loaded ${conversationMessages.length} messages for session ${store.getConversationId()}`,
         );
       } catch (e) {
-        Zotero.debug(`[seerai] Error loading messages, starting fresh: ${e}`);
-        conversationMessages = []; // Start fresh on error
+        Zotero.debug(`[seerai] Error loading messages: ${e}`);
       }
     }
 
-    // Load table config if not already loaded
-    if (!currentTableConfig) {
+    // Load table config - ALWAYS reload from disk when viewing table tab to get latest changes from tools
+    if (!currentTableConfig || activeTab === "table") {
       try {
         const tableStore = getTableStore();
         currentTableConfig = await tableStore.loadConfig();
-        Zotero.debug(`[seerai] Loaded table config: ${currentTableConfig.id}`);
+        Zotero.debug(`[seerai] Loaded table config: ${currentTableConfig.id} (activeTab=${activeTab})`);
       } catch (e) {
         Zotero.debug(`[seerai] Error loading table config: ${e}`);
       }
@@ -1219,39 +1391,47 @@ export class Assistant {
       },
     });
 
-    // === TAB BAR ===
-    const tabBar = this.createTabBar(doc, container, item);
-    mainContainer.appendChild(tabBar);
+    try {
+      // === TAB BAR ===
+      const tabBar = this.createTabBar(doc, container, item);
+      mainContainer.appendChild(tabBar);
 
-    // === TAB CONTENT CONTAINER ===
-    const tabContent = ztoolkit.UI.createElement(doc, "div", {
-      properties: { id: "tab-content" },
-      styles: {
-        flex: "1",
-        display: "flex",
-        flexDirection: "column",
-        overflow: "hidden",
-      },
-    });
+      // === TAB CONTENT CONTAINER ===
+      const tabContent = ztoolkit.UI.createElement(doc, "div", {
+        properties: { id: "tab-content" },
+        styles: {
+          flex: "1",
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
+        },
+      });
 
-    // Render active tab content
-    if (activeTab === "chat") {
-      const chatTabContent = await this.createChatTabContent(
-        doc,
-        item,
-        stateManager,
-      );
-      tabContent.appendChild(chatTabContent);
-    } else if (activeTab === "table") {
-      const tableTabContent = await this.createTableTabContent(doc, item);
-      tabContent.appendChild(tableTabContent);
-    } else if (activeTab === "search") {
-      const searchTabContent = await this.createSearchTabContent(doc, item);
-      tabContent.appendChild(searchTabContent);
+      // Render active tab content
+      if (activeTab === "chat") {
+        const chatTabContent = await this.createChatTabContent(
+          doc,
+          item,
+          stateManager,
+        );
+        tabContent.appendChild(chatTabContent);
+      } else if (activeTab === "table") {
+        const tableTabContent = await this.createTableTabContent(doc, item);
+        tabContent.appendChild(tableTabContent);
+      } else if (activeTab === "search") {
+        const searchTabContent = await this.createSearchTabContent(doc, item);
+        tabContent.appendChild(searchTabContent);
+      }
+
+      mainContainer.appendChild(tabContent);
+      container.appendChild(mainContainer);
+    } catch (error) {
+      Zotero.debug(`[seerai] Error rendering interface: ${error}`);
+      const errorDiv = doc.createElement("div");
+      errorDiv.style.cssText = "padding: 20px; color: red;";
+      errorDiv.textContent = `Error rendering interface: ${error}`;
+      container.appendChild(errorDiv);
     }
-
-    mainContainer.appendChild(tabContent);
-    container.appendChild(mainContainer);
   }
 
   /**
@@ -1325,6 +1505,131 @@ export class Assistant {
   }
 
   /**
+   * Create the History Sidebar
+   */
+  private static createHistorySidebar(doc: Document): HTMLElement {
+    const sidebar = doc.createElement("div");
+    sidebar.className = "history-sidebar";
+    sidebar.style.cssText = `
+      width: ${isHistorySidebarVisible ? "250px" : "0px"};
+      min-width: ${isHistorySidebarVisible ? "200px" : "0px"};
+      display: flex;
+      flex-direction: column;
+      border-right: 1px solid var(--border-primary);
+      background-color: var(--background-secondary);
+      transition: width 0.3s ease, min-width 0.3s ease;
+      overflow: hidden;
+      height: 100%;
+    `;
+
+    // Header with New Chat button
+    const header = doc.createElement("div");
+    header.style.cssText = "padding: 12px; border-bottom: 1px solid var(--border-primary); display: flex; flex-direction: column; gap: 8px;";
+
+    const newChatBtn = doc.createElement("button");
+    newChatBtn.className = "new-chat-btn";
+    newChatBtn.innerHTML = "➕ New Chat";
+    newChatBtn.style.cssText = `
+      width: 100%;
+      padding: 8px;
+      border-radius: 6px;
+      background: var(--highlight-primary);
+      color: white;
+      border: none;
+      cursor: pointer;
+      font-weight: 500;
+      transition: opacity 0.2s;
+    `;
+    newChatBtn.onclick = () => this.createNewChat();
+    header.appendChild(newChatBtn);
+    sidebar.appendChild(header);
+
+    // List of conversations
+    const list = doc.createElement("div");
+    list.className = "history-list";
+    list.style.cssText = "flex: 1; overflow-y: auto; display: flex; flex-direction: column;";
+
+    const currentId = getMessageStore().getConversationId();
+
+    conversationHistory.forEach(conv => {
+      const item = doc.createElement("div");
+      item.className = `history-item ${conv.id === currentId ? "active" : ""}`;
+      item.style.cssText = `
+        padding: 10px 12px;
+        cursor: pointer;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        border-bottom: 1px solid var(--border-secondary);
+        background: ${conv.id === currentId ? "var(--background-primary)" : "transparent"};
+        position: relative;
+        transition: background 0.2s;
+      `;
+
+      item.onclick = (e) => {
+        if ((e.target as HTMLElement).classList.contains('delete-btn')) return;
+        this.loadChat(conv.id);
+      };
+
+      const title = doc.createElement("div");
+      title.textContent = conv.title || "Untitled Chat";
+      title.style.cssText = "font-size: 13px; font-weight: 600; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 20px;";
+      item.appendChild(title);
+
+      const preview = doc.createElement("div");
+      preview.textContent = conv.preview || "No messages";
+      preview.style.cssText = "font-size: 11px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;";
+      item.appendChild(preview);
+
+      const date = doc.createElement("div");
+      date.textContent = this.formatRelativeTime(new Date(conv.updatedAt));
+      date.style.cssText = "font-size: 10px; color: var(--text-tertiary);";
+      item.appendChild(date);
+
+      // Delete button (hidden by default, shown on hover via CSS in zoteroPane.css)
+      const deleteBtn = doc.createElement("button");
+      deleteBtn.className = "delete-btn";
+      deleteBtn.innerHTML = "✕";
+      deleteBtn.title = "Delete conversation";
+      deleteBtn.style.cssText = `
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        background: transparent;
+        border: none;
+        color: var(--text-tertiary);
+        cursor: pointer;
+        font-size: 14px;
+        padding: 4px;
+        display: none;
+      `;
+      deleteBtn.onclick = (e) => {
+        e.stopPropagation();
+        if (doc.defaultView?.confirm("Are you sure you want to delete this conversation?")) {
+          this.deleteChat(conv.id);
+        }
+      };
+      item.appendChild(deleteBtn);
+
+      // Simple hover effect for JS toggle
+      item.onmouseenter = () => { deleteBtn.style.display = "block"; };
+      item.onmouseleave = () => { deleteBtn.style.display = "none"; };
+
+      list.appendChild(item);
+    });
+
+    if (conversationHistory.length === 0) {
+      const empty = doc.createElement("div");
+      empty.textContent = "No history yet";
+      empty.style.cssText = "padding: 20px; text-align: center; color: var(--text-tertiary); font-style: italic; font-size: 12px;";
+      list.appendChild(empty);
+    }
+
+    sidebar.appendChild(list);
+    return sidebar;
+  }
+
+  /**
    * Create the Chat tab content (existing chat UI)
    */
   private static async createChatTabContent(
@@ -1332,18 +1637,33 @@ export class Assistant {
     item: Zotero.Item,
     stateManager: ReturnType<typeof getChatStateManager>,
   ): Promise<HTMLElement> {
+    const mainWrapper = doc.createElement("div");
+    mainWrapper.style.cssText = "display: flex; height: 100%; width: 100%; overflow: hidden;";
+
+    // === CHAT CONTENT ===
     const chatContainer = ztoolkit.UI.createElement(doc, "div", {
       styles: {
         display: "flex",
         flexDirection: "column",
         height: "100%",
+        flex: "1",
         gap: "8px",
         padding: "8px",
+        minWidth: "0",
+        position: "relative",
       },
     });
 
     // === SELECTION AREA ===
-    const selectionArea = this.createSelectionArea(doc, stateManager);
+    let selectionArea: HTMLElement;
+    try {
+      selectionArea = this.createSelectionArea(doc, stateManager);
+    } catch (e) {
+      Zotero.debug(`[seerai] Error creating selection area: ${e}`);
+      selectionArea = doc.createElement("div");
+      selectionArea.textContent = `Error in selection area: ${e}`;
+      selectionArea.style.color = "red";
+    }
 
     // === MESSAGES AREA ===
     const messagesArea = ztoolkit.UI.createElement(doc, "div", {
@@ -1365,16 +1685,108 @@ export class Assistant {
     }) as HTMLElement;
 
     // Restore previous messages
-    const lastUserMsgIndex = conversationMessages
-      .map((m) => m.role)
-      .lastIndexOf("user");
-    conversationMessages.forEach((msg, idx) => {
-      const isLastUserMsg = msg.role === "user" && idx === lastUserMsgIndex;
-      this.renderStoredMessage(messagesArea, msg, isLastUserMsg);
-    });
+    try {
+      const lastUserMsgIndex = conversationMessages
+        .map((m) => m.role)
+        .lastIndexOf("user");
+      conversationMessages.forEach((msg, idx) => {
+        const isLastUserMsg = msg.role === "user" && idx === lastUserMsgIndex;
+        this.renderStoredMessage(messagesArea, msg, isLastUserMsg);
+      });
+    } catch (e) {
+      Zotero.debug(`[seerai] Error restoring messages: ${e}`);
+    }
+
+    // === RESTORE ACTIVE SESSION ===
+    if (activeAgentSession) {
+      try {
+        Zotero.debug(`[seerai] Restoring active agent session UI - isThinking: ${activeAgentSession.isThinking}, toolResults: ${activeAgentSession.toolResults.length}, fullResponse length: ${activeAgentSession.fullResponse?.length || 0}`);
+
+        const streamingDiv = this.appendMessage(messagesArea, "Assistant", "");
+        const contentDiv = streamingDiv.querySelector(
+          "[data-content]",
+        ) as HTMLElement;
+
+        // CRITICAL: Update session references IMMEDIATELY so any concurrent callbacks use new DOM
+        activeAgentSession.messagesArea = messagesArea;
+        activeAgentSession.contentDiv = contentDiv;
+
+        // Restore response content
+        if (activeAgentSession.isThinking && !activeAgentSession.fullResponse) {
+          contentDiv.innerHTML = `
+            <div class="typing-indicator" style="display: flex; align-items: center; gap: 4px; color: var(--text-secondary); font-style: italic;">
+                <span>Thinking</span>
+                <span class="dot" style="animation: blink 1.4s infinite .2s;">.</span>
+                <span class="dot" style="animation: blink 1.4s infinite .4s;">.</span>
+                <span class="dot" style="animation: blink 1.4s infinite .6s;">.</span>
+            </div>
+          `;
+        } else if (activeAgentSession.fullResponse) {
+          // Create markdown container for text content
+          const mdContainer = doc.createElement("div");
+          mdContainer.className = "markdown-content";
+          mdContainer.setAttribute("data-raw", activeAgentSession.fullResponse);
+          mdContainer.innerHTML = parseMarkdown(activeAgentSession.fullResponse);
+          contentDiv.appendChild(mdContainer);
+        }
+
+        // ALWAYS create toolProcessState if session is active (even with 0 results)
+        // This ensures subsequent tool calls have a valid container
+        const { container, setThinking, setCompleted, setFailed } = createToolProcessUI(doc);
+        contentDiv.appendChild(container);
+
+        // Access internal list container
+        const listContainer = container.querySelector(".tool-list-container");
+        const targetContainer = (listContainer || container) as HTMLElement;
+
+        // Update session references for tool container
+        activeAgentSession.toolProcessState = { container, setThinking, setCompleted, setFailed };
+        activeAgentSession.toolContainer = targetContainer;
+
+        // Re-hydrate existing tool cards
+        activeAgentSession.toolResults.forEach(tr => {
+          const toolUI = createToolExecutionUI(doc, tr.toolCall, tr.result);
+          targetContainer.appendChild(toolUI);
+          // CRITICAL: Update the reference so the observer updates THIS element
+          tr.uiElement = toolUI;
+        });
+
+        // Set appropriate state indicator
+        if (activeAgentSession.isThinking || activeAgentSession.toolResults.some(tr => !tr.result)) {
+          setThinking();
+        } else if (activeAgentSession.toolResults.length > 0) {
+          setCompleted(activeAgentSession.toolResults.length);
+        }
+
+        // Show stop button if streaming
+        const stopBtn = doc.getElementById("stop-btn") as HTMLElement | null;
+        if (stopBtn && this.isStreaming) {
+          stopBtn.style.display = "inline-block";
+        }
+
+        // Auto-scroll
+        messagesArea.scrollTop = messagesArea.scrollHeight;
+
+        Zotero.debug("[seerai] Active session restoration complete");
+      } catch (e) {
+        Zotero.debug(`[seerai] Error restoring active session: ${e}`);
+        const errDiv = doc.createElement("div");
+        errDiv.textContent = `Error restoring session: ${e}`;
+        errDiv.style.color = "red";
+        messagesArea.appendChild(errDiv);
+      }
+    }
 
     // === INPUT AREA ===
-    const inputArea = this.createInputArea(doc, messagesArea, stateManager);
+    let inputArea: HTMLElement;
+    try {
+      inputArea = this.createInputArea(doc, messagesArea, stateManager);
+    } catch (e) {
+      Zotero.debug(`[seerai] Error creating input area: ${e}`);
+      inputArea = doc.createElement("div");
+      inputArea.textContent = `Error in input area: ${e}`;
+      inputArea.style.color = "red";
+    }
 
     // Assemble
     chatContainer.appendChild(selectionArea);
@@ -1382,7 +1794,8 @@ export class Assistant {
     chatContainer.appendChild(messagesArea);
     chatContainer.appendChild(inputArea);
 
-    return chatContainer;
+    mainWrapper.appendChild(chatContainer);
+    return mainWrapper;
   }
 
   /**
@@ -5087,7 +5500,7 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
    * Uses the same discovery process as the search card PDF button
    * Returns both the item and whether PDF was successfully attached
    */
-  private static async addPaperToZoteroWithPdfDiscovery(
+  public static async addPaperToZoteroWithPdfDiscovery(
     paper: SemanticScholarPaper,
     statusBtn?: HTMLButtonElement,
   ): Promise<{
@@ -5232,12 +5645,12 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
       // Get source URL for fallback if no PDF obtained
       const sourceUrl = !pdfAttached
         ? getSourceLinkForPaper(
-            paper.externalIds?.DOI,
-            paper.externalIds?.ArXiv,
-            paper.externalIds?.PMID,
-            undefined,
-            paper.url,
-          ) || undefined
+          paper.externalIds?.DOI,
+          paper.externalIds?.ArXiv,
+          paper.externalIds?.PMID,
+          undefined,
+          paper.url,
+        ) || undefined
         : undefined;
 
       Zotero.debug(
@@ -7208,7 +7621,7 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
           if (col.type === "computed" && col.visible) {
             const cellVal =
               currentTableData?.rows.find((r) => r.paperId === paperId)?.data[
-                col.id
+              col.id
               ] || "";
             if (!cellVal.trim()) {
               // This cell is empty, so it might show the "OCR" prompt
@@ -7541,8 +7954,8 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
           item.setField(
             "extra",
             currentExtra +
-              (currentExtra ? "\n" : "") +
-              `PMID: ${discoveredPmid}`,
+            (currentExtra ? "\n" : "") +
+            `PMID: ${discoveredPmid}`,
           );
           metadataUpdated = true;
           Zotero.debug(`[seerai] Updated item PMID: ${discoveredPmid}`);
@@ -7830,6 +8243,140 @@ Output: "COVID-19"|"SARS-CoV-2"|coronavirus+vaccine|vaccination+effectiveness|ef
   }
 
   /**
+   * Generate table data for specified items and columns (public for agent tools)
+   * This runs AI analysis and saves results to the table config
+   */
+  public static async generateDataForTable(
+    tableId: string,
+    itemIds?: number[],
+    columnIds?: string[]
+  ): Promise<{ generatedCount: number; errors: string[] }> {
+    const tableStore = getTableStore();
+    const allTables = await tableStore.getAllTables();
+    const table = allTables.find(t => t.id === tableId);
+
+    if (!table) {
+      throw new Error(`Table ${tableId} not found`);
+    }
+
+    const errors: string[] = [];
+    let generatedCount = 0;
+
+    // Determine which items to process
+    const items = itemIds || table.addedPaperIds || [];
+
+    // Determine which columns to generate (AI columns only)
+    const columnsToGenerate = columnIds
+      ? table.columns.filter((c: TableColumn) => columnIds.includes(c.id))
+      : table.columns.filter((c: TableColumn) => c.type === 'computed' || c.aiPrompt);
+
+    if (columnsToGenerate.length === 0 || items.length === 0) {
+      return { generatedCount: 0, errors: [] };
+    }
+
+    Zotero.debug(
+      `[seerai] generateDataForTable: ${items.length} items × ${columnsToGenerate.length} columns`
+    );
+
+    // Initialize generatedData if needed
+    if (!table.generatedData) {
+      table.generatedData = {};
+    }
+
+    // Process each item/column combination
+    for (const paperId of items) {
+      const item = Zotero.Items.get(paperId);
+      if (!item) {
+        errors.push(`Item ${paperId} not found`);
+        continue;
+      }
+
+      // Initialize data for this paper
+      if (!table.generatedData[paperId]) {
+        table.generatedData[paperId] = {};
+      }
+
+      // Get note content for this item
+      let noteContent = "";
+      const childNotes = item.getNotes();
+      for (const noteId of childNotes) {
+        const noteItem = Zotero.Items.get(noteId);
+        if (noteItem) {
+          const noteHTML = noteItem.getNote();
+          noteContent += this.stripHtml(noteHTML) + "\n\n";
+        }
+      }
+
+      // Try to get PDF text if no notes
+      if (!noteContent.trim()) {
+        const attachmentIds = item.getAttachments();
+        for (const attId of attachmentIds) {
+          const att = Zotero.Items.get(attId);
+          if (att && att.attachmentContentType === "application/pdf") {
+            try {
+              if ((Zotero.Fulltext as any).getItemContent) {
+                const content = await (Zotero.Fulltext as any).getItemContent(att.id);
+                noteContent = content?.content || "";
+              } else if ((Zotero.Fulltext as any).getTextForItem) {
+                noteContent = await (Zotero.Fulltext as any).getTextForItem(att.id) || "";
+              }
+              if (noteContent) break;
+            } catch (e) {
+              Zotero.debug(`[seerai] Error getting fulltext: ${e}`);
+            }
+          }
+        }
+      }
+
+      if (!noteContent.trim()) {
+        errors.push(`No content available for item ${paperId}`);
+        continue;
+      }
+
+      // Generate data for each column
+      for (const col of columnsToGenerate) {
+        try {
+          // Create a TableColumn object for the generation
+          const tableCol: TableColumn = {
+            id: col.id,
+            name: col.name,
+            width: col.width || 150,
+            minWidth: col.minWidth || 80,
+            visible: true,
+            sortable: false,
+            resizable: true,
+            type: col.type || 'computed',
+            aiPrompt: col.aiPrompt
+          };
+
+          const content = await this.generateColumnContentFromText(
+            item,
+            tableCol,
+            noteContent
+          );
+
+          table.generatedData![paperId]![col.id] = content;
+          generatedCount++;
+
+          Zotero.debug(
+            `[seerai] Generated: item=${paperId} col=${col.name} length=${content.length}`
+          );
+        } catch (e) {
+          const errMsg = `Error generating ${col.name} for item ${paperId}: ${e}`;
+          errors.push(errMsg);
+          Zotero.debug(`[seerai] ${errMsg}`);
+        }
+      }
+    }
+
+    // Save the updated table config
+    await tableStore.saveConfig(table);
+    Zotero.debug(`[seerai] Saved generatedData for table ${tableId}`);
+
+    return { generatedCount, errors };
+  }
+
+  /**
    * Generate column content using AI
    */
   private static async generateColumnContent(
@@ -7929,7 +8476,7 @@ Task: ${columnPrompt}`;
           onToken: (token) => {
             fullResponse += token;
           },
-          onComplete: () => {},
+          onComplete: () => { },
           onError: (err) => {
             throw err;
           },
@@ -8709,7 +9256,7 @@ Task: ${columnPrompt}`;
     }
 
     // Try indexed PDF text (auto-indexes if needed, skips note check since we already did it)
-    const pdfText = await getPdfTextForItem(item, 0, true, false);
+    const pdfText = await Assistant.getPdfTextForItem(item, 0, true, false);
     if (pdfText) {
       Zotero.debug(
         `[seerai] Using indexed PDF text for generation (${pdfText.length} chars)`,
@@ -13141,7 +13688,7 @@ Task: ${columnPrompt}`;
         try {
           const raw = Zotero.Prefs.get("extensions.seer-ai.search.presets");
           if (raw) savedPresets = JSON.parse(raw as string);
-        } catch (e) {}
+        } catch (e) { }
 
         savedPresets[name.trim()] = searchColumnConfig.columns;
         Zotero.Prefs.set(
@@ -14003,7 +14550,7 @@ ${lengthConstraint}`;
         onToken: (token) => {
           fullResponse += token;
         },
-        onComplete: () => {},
+        onComplete: () => { },
         onError: (err) => {
           throw err;
         },
@@ -15706,15 +16253,181 @@ ${tableRows}  </tbody>
   }
 
   /**
+   * Get current library scope preference
+   */
+  private static getScopePref(): string {
+    try {
+      return (Zotero.Prefs.get("extensions.seerai.libraryScope") as string) || "all";
+    } catch (e) {
+      return "all";
+    }
+  }
+
+  /**
+   * Get human-readable label for a scope string
+   */
+  private static getScopeLabel(scope: string): string {
+    if (scope === "user") return "My Library";
+    if (scope === "all") return "All Libraries";
+    if (scope.startsWith("group:")) {
+      const groupId = parseInt(scope.split(":")[1], 10);
+      try {
+        const group = Zotero.Groups.get(groupId);
+        return group ? group.name : "Group: " + groupId;
+      } catch (e) {
+        return "Group: " + groupId;
+      }
+    }
+    if (scope.startsWith("collection:")) {
+      const parts = scope.split(":");
+      const colId = parseInt(parts[parts.length - 1], 10);
+      try {
+        const col = Zotero.Collections.get(colId);
+        return col ? "Folder: " + col.name : "Collection";
+      } catch (e) {
+        return "Collection";
+      }
+    }
+    return "All Libraries";
+  }
+
+  /**
+   * Show dropdown to select agentic mode scope (library/collection)
+   */
+  private static showScopeDropdown(
+    doc: Document,
+    anchorEl: HTMLElement,
+    onSelect: (scope: string) => void
+  ): void {
+    // Remove any existing dropdown
+    const existing = doc.getElementById("agentic-scope-dropdown");
+    if (existing) existing.remove();
+
+    const dropdown = doc.createElement("div");
+    dropdown.id = "agentic-scope-dropdown";
+    dropdown.style.cssText = `
+      position: absolute;
+      bottom: 100%;
+      left: 0;
+      margin-bottom: 4px;
+      min-width: 240px;
+      max-height: 500px;
+      overflow-y: auto;
+      background: var(--background-primary, #fff);
+      border: 1px solid var(--border-primary, #ccc);
+      border-radius: 8px;
+      box-shadow: 0 -4px 12px rgba(0,0,0,0.15);
+      z-index: 1000;
+      padding: 4px 0;
+    `;
+
+    const currentScope = Assistant.getScopePref();
+
+    const addOption = (label: string, value: string, icon: string = "📁", level: number = 0) => {
+      const opt = doc.createElement("div");
+      const isSelected = currentScope === value;
+
+      opt.style.cssText = `
+        padding: 8px 12px;
+        padding-left: ${12 + (level * 16)}px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 12px;
+        color: ${isSelected ? "#fff" : "var(--text-primary, #333)"};
+        background-color: ${isSelected ? "var(--accent-blue, #007AFF)" : "transparent"};
+        font-weight: ${isSelected ? "600" : "normal"};
+      `;
+
+      opt.innerHTML = `<span>${icon}</span><span style="flex-grow: 1">${label}</span>`;
+
+      opt.addEventListener("mouseenter", () => {
+        if (!isSelected) opt.style.backgroundColor = "var(--fill-quinary, #f5f5f5)";
+      });
+      opt.addEventListener("mouseleave", () => {
+        if (!isSelected) opt.style.backgroundColor = "transparent";
+      });
+      opt.addEventListener("click", () => {
+        onSelect(value);
+        dropdown.remove();
+      });
+      dropdown.appendChild(opt);
+
+      if (isSelected) {
+        setTimeout(() => opt.scrollIntoView({ block: 'nearest' }), 50);
+      }
+    };
+
+    const addCollectionTree = (libraryID: number, parentID: number | null, level: number) => {
+      try {
+        const collections = parentID
+          ? Zotero.Collections.getByParent(parentID)
+          : Zotero.Collections.getByLibrary(libraryID);
+
+        for (const col of collections) {
+          addOption(col.name, `collection:${col.libraryID}:${col.id}`, "📂", level);
+          addCollectionTree(libraryID, col.id, level + 1);
+        }
+      } catch (e) {
+        Zotero.debug(`[seerai] Error rendering collection tree: ${e}`);
+      }
+    };
+
+    // 1. All Libraries (Global)
+    addOption("All Libraries", "all", "🌐");
+
+    // Separator
+    const sep1 = doc.createElement("div");
+    sep1.style.cssText = "height: 1px; background: var(--border-primary, #ccc); margin: 4px 0;";
+    dropdown.appendChild(sep1);
+
+    // 2. Personal Library
+    addOption("My Library", "user", "📚");
+    addCollectionTree(Zotero.Libraries.userLibraryID, null, 1);
+
+    // 3. Group Libraries
+    try {
+      const groups = Zotero.Groups.getAll();
+      for (const group of groups) {
+        // Separator for groups if not the first one
+        const groupSep = doc.createElement("div");
+        groupSep.style.cssText = "height: 1px; background: var(--border-primary, #ccc); margin: 4px 12px; opacity: 0.5;";
+        dropdown.appendChild(groupSep);
+
+        addOption(group.name, `group:${group.groupID}`, "👥");
+        addCollectionTree(group.libraryID, null, 1);
+      }
+    } catch (e) {
+      Zotero.debug(`[seerai] Error getting groups: ${e}`);
+    }
+
+    // Agent Iteration Limit & Auto-OCR moved to Chat Settings (gear icon)
+
+    // Position dropdown
+    anchorEl.parentElement?.appendChild(dropdown);
+
+    // Close on click outside
+    const closeHandler = (e: Event) => {
+      if (!dropdown.contains(e.target as Node) && e.target !== anchorEl) {
+        dropdown.remove();
+        doc.removeEventListener("click", closeHandler);
+      }
+    };
+    setTimeout(() => doc.addEventListener("click", closeHandler), 10);
+  }
+
+  /**
    * Create the input area with send button and image paste support
    */
+
   private static createInputArea(
     doc: Document,
     messagesArea: HTMLElement,
     stateManager: ReturnType<typeof getChatStateManager>,
   ): HTMLElement {
-    // Track pasted images (session-only, not persisted)
-    const pastedImages: { id: string; image: string; mimeType: string }[] = [];
+    // Track pasted images (persisted across re-renders)
+    const pastedImages = currentPastedImages;
 
     // Container for everything
     const inputContainer = ztoolkit.UI.createElement(doc, "div", {
@@ -15726,7 +16439,12 @@ ${tableRows}  </tbody>
     });
 
     // Unified Context Chips Area
-    const contextChipsArea = createContextChipsArea(doc);
+    let contextChipsArea: HTMLElement | null = null;
+    try {
+      contextChipsArea = createContextChipsArea(doc);
+    } catch (e) {
+      Zotero.debug(`[seerai] Error creating context chips area: ${e}`);
+    }
     const contextManager = ChatContextManager.getInstance();
 
     // Image preview area (hidden by default)
@@ -15827,6 +16545,10 @@ ${tableRows}  </tbody>
         placeholder:
           "Ask about selected items... (paste images with Cmd+V or Ctrl+Shift+V)",
         rows: "1",
+        disabled: this.isStreaming ? "true" : undefined,
+      },
+      properties: {
+        value: currentDraftText,
       },
       styles: {
         flex: "1",
@@ -15946,6 +16668,7 @@ ${tableRows}  </tbody>
           listener: () => {
             // Auto-expand
             const el = input as unknown as HTMLTextAreaElement;
+            currentDraftText = el.value; // Store draft
             el.style.height = "auto";
             const newHeight = Math.max(32, el.scrollHeight);
             el.style.height = newHeight + "px";
@@ -15985,7 +16708,10 @@ ${tableRows}  </tbody>
     }) as unknown as HTMLInputElement;
 
     const sendBtn = ztoolkit.UI.createElement(doc, "button", {
-      properties: { innerText: "➤ Send" },
+      properties: {
+        innerText: "➤ Send",
+        disabled: this.isStreaming,
+      },
       styles: {
         padding: "0 16px",
         height: "32px",
@@ -16021,6 +16747,16 @@ ${tableRows}  </tbody>
       ],
     });
 
+    // Initial UI sync for restored drafts
+    if (currentPastedImages.length > 0) {
+      updateImagePreview();
+    }
+    if (currentDraftText) {
+      setTimeout(() => {
+        input.dispatchEvent(new Event("input"));
+      }, 0);
+    }
+
     // Stop button
     const stopBtn = ztoolkit.UI.createElement(doc, "button", {
       properties: { innerText: "⏹", id: "stop-btn", title: "Stop Generation" },
@@ -16033,7 +16769,7 @@ ${tableRows}  </tbody>
         backgroundColor: "var(--button-stop-background, #ffebee)",
         color: "var(--button-stop-text, #c62828)",
         cursor: "pointer",
-        display: "none",
+        display: this.isStreaming ? "inline-flex" : "none",
         alignItems: "center",
         justifyContent: "center",
       },
@@ -16208,6 +16944,97 @@ ${tableRows}  </tbody>
     settingsContainer.style.cssText = "position: relative; margin-right: 4px;";
     settingsContainer.appendChild(settingsBtn);
 
+    // Agentic mode toggle button
+    let agenticEnabled = isAgenticModeEnabled();
+
+    const updateAgenticBtnStyle = (btn: HTMLElement, enabled: boolean) => {
+      btn.innerText = enabled ? "🤖" : "💬";
+      btn.title = enabled ? `Agentic Mode: ON - Scope: ${this.getScopeLabel(this.getScopePref())}` : "Agentic Mode: OFF (click to enable)";
+      btn.style.backgroundColor = enabled ? "var(--accent-blue, #007AFF)" : "var(--background-secondary)";
+      btn.style.color = enabled ? "#fff" : "var(--text-secondary)";
+      btn.style.borderColor = enabled ? "var(--accent-blue, #007AFF)" : "var(--border-primary)";
+    };
+
+    const agenticBtn = ztoolkit.UI.createElement(doc, "button", {
+      properties: { innerText: agenticEnabled ? "🤖" : "💬", title: "Toggle Agentic Mode (tool calling)" },
+      styles: {
+        width: "32px",
+        height: "32px",
+        border: "1px solid var(--border-primary)",
+        borderRadius: "6px 0 0 6px",
+        backgroundColor: agenticEnabled ? "var(--accent-blue, #007AFF)" : "var(--background-secondary)",
+        color: agenticEnabled ? "#fff" : "var(--text-secondary)",
+        cursor: "pointer",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontSize: "14px",
+        transition: "all 0.15s ease",
+      },
+      listeners: [
+        {
+          type: "click",
+          listener: () => {
+            agenticEnabled = !agenticEnabled;
+            try {
+              Zotero.Prefs.set("extensions.seerai.agenticMode", agenticEnabled);
+            } catch (e) {
+              Zotero.debug(`[seerai] Error saving agentic mode pref: ${e}`);
+            }
+            updateAgenticBtnStyle(agenticBtn as HTMLElement, agenticEnabled);
+            // Update scope button visibility
+            (scopeBtn as HTMLElement).style.display = agenticEnabled ? "flex" : "none";
+            Zotero.debug(`[seerai] Agentic mode toggled: ${agenticEnabled}`);
+          },
+        },
+      ],
+    });
+
+    // Scope selector button (dropdown trigger)
+    const scopeBtn = ztoolkit.UI.createElement(doc, "button", {
+      properties: { innerText: "▼", title: `Scope: ${this.getScopeLabel(this.getScopePref())}` },
+      styles: {
+        width: "20px",
+        height: "32px",
+        border: "1px solid var(--accent-blue, #007AFF)",
+        borderLeft: "none",
+        borderRadius: "0 6px 6px 0",
+        backgroundColor: "var(--accent-blue, #007AFF)",
+        color: "#fff",
+        cursor: "pointer",
+        display: agenticEnabled ? "flex" : "none",
+        alignItems: "center",
+        justifyContent: "center",
+        fontSize: "10px",
+        transition: "all 0.15s ease",
+      },
+      listeners: [
+        {
+          type: "click",
+          listener: (e: Event) => {
+            e.stopPropagation();
+            this.showScopeDropdown(doc, scopeBtn as HTMLElement, (newScope: string) => {
+              try {
+                Zotero.Prefs.set("extensions.seerai.libraryScope", newScope);
+                (scopeBtn as HTMLElement).title = `Scope: ${this.getScopeLabel(newScope)}`;
+                updateAgenticBtnStyle(agenticBtn as HTMLElement, agenticEnabled);
+                Zotero.debug(`[seerai] Agent scope changed to: ${newScope}`);
+              } catch (err) {
+                Zotero.debug(`[seerai] Error saving scope: ${err}`);
+              }
+            });
+          },
+        },
+
+      ],
+    });
+
+    const agenticContainer = doc.createElement("div");
+    agenticContainer.style.cssText = "position: relative; display: flex; margin-right: 4px;";
+    agenticContainer.appendChild(agenticBtn);
+    agenticContainer.appendChild(scopeBtn);
+
+
     // Prompt Library button
     const promptsBtn = ztoolkit.UI.createElement(doc, "button", {
       properties: { innerText: "📚", title: "Prompt Library" },
@@ -16304,6 +17131,7 @@ ${tableRows}  </tbody>
       },
     );
 
+    inputArea.appendChild(agenticContainer);
     inputArea.appendChild(settingsContainer);
     inputArea.appendChild(promptsContainer);
     inputArea.appendChild(placeholderBtn);
@@ -16313,291 +17141,269 @@ ${tableRows}  </tbody>
     inputArea.appendChild(clearBtn);
     inputArea.appendChild(saveBtn);
 
-    inputContainer.appendChild(contextChipsArea);
+    // History Button
+    const historyBtn = ztoolkit.UI.createElement(doc, "button", {
+      properties: { innerText: "📜", title: "Chat History" },
+      styles: {
+        padding: "0 12px",
+        height: "32px",
+        fontSize: "13px",
+        border: "1px solid var(--border-primary)",
+        borderRadius: "6px",
+        backgroundColor: "var(--background-secondary)",
+        color: "var(--text-secondary)",
+        cursor: "pointer",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+      },
+      listeners: [
+        {
+          type: "click",
+          listener: (e: MouseEvent) => {
+            this.showHistoryPopover(doc, historyBtn as HTMLElement);
+          },
+        },
+      ],
+    });
+    inputArea.appendChild(historyBtn);
+
+
+    if (contextChipsArea) {
+      inputContainer.appendChild(contextChipsArea);
+    }
     inputContainer.appendChild(imagePreviewArea);
     inputContainer.appendChild(inputArea);
     return inputContainer;
   }
 
   /**
-   * Handle send with streaming response
+   * Show history popover with past conversations
    */
-  private static async handleSendWithStreaming(
-    input: HTMLInputElement,
-    messagesArea: HTMLElement,
-    stateManager: ReturnType<typeof getChatStateManager>,
-  ) {
-    const text = input.value.trim();
-    if (!text || this.isStreaming) return;
+  private static async showHistoryPopover(doc: Document, anchorBtn: HTMLElement) {
+    const dropdown = doc.createElement("div");
+    dropdown.className = "history-popover";
+    dropdown.style.cssText = `
+      position: absolute;
+      bottom: 45px;
+      right: 0;
+      width: 280px;
+      max-height: 400px;
+      background: var(--background-primary);
+      border: 1px solid var(--border-primary);
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      z-index: 1000;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      animation: slide-up 0.2s ease-out;
+    `;
 
-    // Store and display user message
-    const userMsg: ChatMessage = {
-      id: Date.now().toString(),
-      role: "user",
-      content: text,
-      timestamp: new Date(),
+    const header = doc.createElement("div");
+    header.style.cssText = "padding: 8px 12px; border-bottom: 1px solid var(--border-primary); display: flex; justify-content: space-between; align-items: center; background: var(--background-secondary);";
+
+    const title = doc.createElement("span");
+    title.textContent = "Chat History";
+    title.style.fontWeight = "600";
+    title.style.fontSize = "12px";
+    header.appendChild(title);
+
+    const newChatBtn = doc.createElement("button");
+    newChatBtn.textContent = "+ New Chat";
+    newChatBtn.style.cssText = "padding: 4px 8px; font-size: 11px; background: var(--highlight-primary); color: white; border: none; border-radius: 4px; cursor: pointer;";
+    newChatBtn.onclick = () => {
+      this.createNewChat();
+      dropdown.remove();
     };
-    conversationMessages.push(userMsg);
+    header.appendChild(newChatBtn);
+    dropdown.appendChild(header);
 
-    // Persist user message
-    try {
-      await getMessageStore().appendMessage(userMsg);
-    } catch (e) {
-      Zotero.debug(`[seerai] Error saving user message: ${e}`);
+    const listContainer = doc.createElement("div");
+    listContainer.className = "history-list";
+    listContainer.style.cssText = "overflow-y: auto; flex: 1; max-height: 350px;";
+
+    if (conversationHistory.length === 0) {
+      const emptyMsg = doc.createElement("div");
+      emptyMsg.textContent = "No history yet";
+      emptyMsg.style.cssText = "padding: 20px; text-align: center; color: var(--text-tertiary); font-style: italic;";
+      listContainer.appendChild(emptyMsg);
+    } else {
+      conversationHistory.forEach(conv => {
+        const item = doc.createElement("div");
+        item.className = "history-item" + (getMessageStore().getConversationId() === conv.id ? " active" : "");
+        item.style.cssText = "padding: 10px 12px; border-bottom: 1px solid var(--border-quaternary); cursor: pointer; position: relative; transition: background 0.2s;";
+
+        const itemTitle = doc.createElement("div");
+        itemTitle.textContent = conv.title || "Untitled Chat";
+        itemTitle.style.cssText = "font-weight: 500; font-size: 13px; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 25px;";
+        item.appendChild(itemTitle);
+
+        const itemMeta = doc.createElement("div");
+        itemMeta.textContent = this.formatRelativeTime(new Date(conv.updatedAt));
+        itemMeta.style.cssText = "font-size: 11px; color: var(--text-tertiary); margin-top: 2px;";
+        item.appendChild(itemMeta);
+
+        const deleteBtn = doc.createElement("span");
+        deleteBtn.innerHTML = "🗑️";
+        deleteBtn.className = "delete-btn";
+        deleteBtn.style.cssText = "position: absolute; right: 8px; top: 10px; opacity: 0; transition: opacity 0.2s; font-size: 12px;";
+        deleteBtn.onclick = (e) => {
+          e.stopPropagation();
+          if (doc.defaultView?.confirm("Delete this conversation?")) {
+            this.deleteChat(conv.id);
+            dropdown.remove();
+          }
+        };
+        item.appendChild(deleteBtn);
+
+        item.onmouseenter = () => { deleteBtn.style.opacity = "0.7"; };
+        item.onmouseleave = () => { deleteBtn.style.opacity = "0"; };
+
+        item.onclick = () => {
+          this.loadChat(conv.id);
+          dropdown.remove();
+        };
+        listContainer.appendChild(item);
+      });
     }
 
-    this.appendMessage(messagesArea, "You", text, userMsg.id, true);
+    dropdown.appendChild(listContainer);
+    anchorBtn.parentElement?.appendChild(dropdown);
 
-    input.value = "";
-    input.disabled = true;
-    this.isStreaming = true;
-
-    // Show stop button
-    const stopBtn = messagesArea.ownerDocument?.getElementById(
-      "stop-btn",
-    ) as HTMLElement;
-    if (stopBtn) stopBtn.style.display = "inline-block";
-
-    // Create streaming message placeholder
-    const streamingDiv = this.appendMessage(messagesArea, "Assistant", "");
-    const contentDiv = streamingDiv.querySelector(
-      "[data-content]",
-    ) as HTMLElement;
-
-    try {
-      // Build context from all selected items, notes, and tables
-      const states = stateManager.getStates();
-      let context = "=== Selected Papers ===\n";
-
-      for (const item of states.items) {
-        context += `\n--- ${item.title} ---`;
-        if (item.year) context += ` (${item.year})`;
-        if (item.creators && item.creators.length > 0) {
-          context += `\nAuthors: ${item.creators.join(", ")}`;
-        }
-        if (item.abstract) {
-          context += `\nAbstract: ${item.abstract}`;
-        }
-
-        // Fetch PDF/note content for this item
-        // Priority: Notes with matching title → Indexed PDF text → (skip if unavailable)
-        try {
-          const zoteroItem = Zotero.Items.get(item.id);
-          if (zoteroItem && zoteroItem.isRegularItem()) {
-            const itemContent = await getPdfTextForItem(
-              zoteroItem,
-              0,
-              true,
-              true,
-            );
-            if (itemContent) {
-              context += `\n\nContent:\n${itemContent}`;
-            }
-          }
-        } catch (e) {
-          Zotero.debug(
-            `[seerai] Error fetching content for item ${item.id}: ${e}`,
-          );
-        }
+    // Close on outside click
+    const outsideClick = (e: MouseEvent) => {
+      if (!dropdown.contains(e.target as Node) && e.target !== anchorBtn) {
+        dropdown.remove();
+        doc.removeEventListener("click", outsideClick);
       }
+    };
+    setTimeout(() => doc.addEventListener("click", outsideClick), 0);
+  }
 
-      // Include notes
-      if (states.notes.length > 0) {
-        context += "\n\n=== Notes ===";
-        for (const note of states.notes) {
-          context += `\n\n--- ${note.title} ---\n${note.content}`;
-        }
-      }
 
-      // Include table context
-      if (states.tables.length > 0) {
-        context += "\n\n=== Table Data ===";
-        for (const table of states.tables) {
-          context += `\n\n--- Table: ${table.title} (${table.rowCount} rows) ---`;
-          context += `\nColumns: ${table.columnNames.join(", ")}`;
-          context += `\n${table.content}`;
-        }
-      }
+  /**
+   * Handle an inline permission request from the agent engine.
+   * Finds the UI element for the tool call and appends Allow/Deny buttons.
+   */
+  private static async handleInlinePermissionRequest(toolCallId: string, toolName: string): Promise<boolean> {
+    Zotero.debug(`[seerai] handleInlinePermissionRequest started for ${toolName} (${toolCallId})`);
 
-      // Check if we should include web search context
-      const options = stateManager.getOptions();
-      let webContext = "";
-
-      if (options.webSearchEnabled && firecrawlService.isConfigured()) {
-        try {
-          Zotero.debug(`[seerai] Fetching web search context for: ${text}`);
-          const webResults = await firecrawlService.webSearch(
-            text,
-            firecrawlService.getSearchLimit(),
-          );
-
-          if (webResults.length > 0) {
-            webContext = "\n\n=== Web Search Results ===";
-            for (const result of webResults) {
-              webContext += `\n\n--- ${result.title || "Web Page"} ---`;
-              webContext += `\nSource: ${result.url}`;
-              if (result.description) {
-                webContext += `\n${result.description}`;
-              }
-              if (result.markdown) {
-                // Truncate to avoid token limits
-                const truncated = result.markdown.slice(0, 2000);
-                webContext += `\n${truncated}`;
-                if (result.markdown.length > 2000) {
-                  webContext += "\n[Content truncated...]";
-                }
-              }
-            }
-            Zotero.debug(
-              `[seerai] Added ${webResults.length} web results to context`,
-            );
-          }
-        } catch (e) {
-          Zotero.debug(`[seerai] Web search failed: ${e}`);
-        }
-      }
-
-      const systemPrompt = `You are a helpful research assistant for Zotero. You help users understand and analyze their academic papers, notes, and research data tables.
-
-${context}${webContext}
-
-Be concise, accurate, and helpful. When referencing papers, cite them by title or author. When referencing table data, cite the table name and relevant columns.${webContext ? " When using web search results, cite the source URL." : ""}`;
-
-      // Check if we should include images (vision mode)
-      let messages: (OpenAIMessage | VisionMessage)[];
-
-      if (options.includeImages) {
-        // Build vision-compatible messages with images
-        // Get Zotero items for image extraction
-        const zoteroItems: Zotero.Item[] = [];
-        for (const item of states.items) {
-          const zItem = Zotero.Items.get(item.id);
-          if (zItem) zoteroItems.push(zItem);
-        }
-
-        // Get image content parts
-        const imageParts = await createImageContentParts(zoteroItems, 5);
-
-        if (imageParts.length > 0) {
-          Zotero.debug(
-            `[seerai] Including ${imageParts.length} images in request`,
-          );
-
-          // Build user message with images
-          const userMessageContent: VisionMessageContentPart[] = [
-            { type: "text", text: text },
-            ...imageParts,
-          ];
-
-          messages = [
-            { role: "system", content: systemPrompt },
-            ...conversationMessages
-              .filter((m) => m.role !== "system" && m.role !== "error")
-              .map((m) => ({
-                role: m.role as "user" | "assistant",
-                content: m.content,
-              })),
-            { role: "user", content: userMessageContent },
-          ];
-
-          // Remove the last user message we added (text only) since we're replacing it with vision content
-          messages = messages.slice(0, -2).concat(messages.slice(-1));
-        } else {
-          // No images found, use standard messages
-          messages = [
-            { role: "system", content: systemPrompt },
-            ...conversationMessages
-              .filter((m) => m.role !== "system" && m.role !== "error")
-              .map((m) => ({
-                role: m.role as "user" | "assistant",
-                content: m.content,
-              })),
-          ];
-        }
-      } else {
-        // Standard text-only messages
-        messages = [
-          { role: "system", content: systemPrompt },
-          ...conversationMessages
-            .filter((m) => m.role !== "system" && m.role !== "error")
-            .map((m) => ({
-              role: m.role as "user" | "assistant",
-              content: m.content,
-            })),
-        ];
-      }
-
-      let fullResponse = "";
-
-      // Get active model config for API call
-      const activeModel = getActiveModelConfig();
-      const configOverride = activeModel
-        ? {
-            apiURL: activeModel.apiURL,
-            apiKey: activeModel.apiKey,
-            model: activeModel.model,
-          }
-        : undefined;
-
-      await openAIService.chatCompletionStream(
-        messages,
-        {
-          onToken: (token) => {
-            fullResponse += token;
-            if (contentDiv) {
-              contentDiv.setAttribute("data-raw", fullResponse);
-              contentDiv.innerHTML = parseMarkdown(fullResponse);
-              messagesArea.scrollTop = messagesArea.scrollHeight;
-            }
-          },
-          onComplete: async (content) => {
-            const assistantMsg: ChatMessage = {
-              id: Date.now().toString(),
-              role: "assistant",
-              content: content,
-              timestamp: new Date(),
-            };
-            conversationMessages.push(assistantMsg);
-
-            // Persist assistant message
-            try {
-              await getMessageStore().appendMessage(assistantMsg);
-            } catch (e) {
-              Zotero.debug(`[seerai] Error saving assistant message: ${e}`);
-            }
-
-            // Final render with markdown
-            if (contentDiv) {
-              contentDiv.setAttribute("data-raw", content);
-              contentDiv.innerHTML = parseMarkdown(content);
-            }
-          },
-          onError: (error) => {
-            if (contentDiv) {
-              contentDiv.innerHTML = `<span style="color: #c62828;">Error: ${error.message}</span>`;
-            }
-          },
-        },
-        configOverride,
-      );
-    } catch (error) {
-      const errMsg =
-        error instanceof Error && error.message === "Request was cancelled"
-          ? "Generation stopped"
-          : String(error);
-      if (contentDiv) {
-        const isError =
-          error instanceof Error && error.message !== "Request was cancelled";
-        contentDiv.innerHTML = isError
-          ? `<span style="color: #c62828;">${errMsg}</span>`
-          : errMsg;
-      }
-    } finally {
-      input.disabled = false;
-      input.focus();
-      this.isStreaming = false;
-      if (stopBtn) stopBtn.style.display = "none";
+    if (!activeAgentSession) {
+      Zotero.debug("[seerai] Permission Error: No activeAgentSession found");
+      return false;
     }
+
+    if (!activeAgentSession.contentDiv) {
+      Zotero.debug("[seerai] Permission Error: activeAgentSession.contentDiv is null");
+      return false;
+    }
+
+    Zotero.debug(`[seerai] session.toolResults count: ${activeAgentSession.toolResults.length}`);
+    activeAgentSession.toolResults.forEach(r => Zotero.debug(`[seerai] candidate tool id: ${r.toolCall.id}`));
+
+    const tr = activeAgentSession.toolResults.find(t => t.toolCall.id === toolCallId);
+    const toolElement = tr?.uiElement;
+
+    if (!toolElement) {
+      Zotero.debug(`[seerai] Permission Error: Could not find UI element for tool call ${toolCallId} in session results`);
+      return false;
+    }
+
+    Zotero.debug("[seerai] Found toolElement, looking for .tool-details-content");
+
+    // Find the details content area to inject buttons
+    const detailsContent = toolElement.querySelector(".tool-details-content");
+    if (!detailsContent) {
+      Zotero.debug("[seerai] Permission Error: Could not find .tool-details-content in toolElement");
+      return false;
+    }
+
+    Zotero.debug("[seerai] Found detailsContent, creating permission buttons");
+
+    // Automatically expand the parent tool list and the individual tool card
+    if (activeAgentSession.toolProcessState?.container) {
+      (activeAgentSession.toolProcessState.container as any).open = true;
+    }
+    if (toolElement.tagName === "DETAILS" || (toolElement as any).open !== undefined) {
+      (toolElement as any).open = true;
+    }
+
+    // Create the permission UI container
+    const doc = toolElement.ownerDocument;
+    if (!doc) return false;
+    const permissionContainer = doc.createElement("div");
+    permissionContainer.className = "permission-request-ui";
+    permissionContainer.style.cssText = `
+          margin-top: 10px;
+          padding: 8px;
+          background: var(--background-secondary, #f5f5f5);
+          border-radius: 6px;
+          border-left: 3px solid #ff9800;
+          animation: fade-in 0.3s ease;
+      `;
+
+    const promptText = doc.createElement("div");
+    promptText.style.cssText = "margin-bottom: 8px; font-weight: 500; font-size: 0.9em;";
+    promptText.textContent = "⚠️ Permission Required";
+
+    const subText = doc.createElement("div");
+    subText.style.cssText = "margin-bottom: 8px; font-size: 0.85em; color: var(--text-secondary);";
+    subText.textContent = "The agent wants to execute this tool. Allow?";
+
+    const btnContainer = doc.createElement("div");
+    btnContainer.style.cssText = "display: flex; gap: 8px; justify-content: flex-end;";
+
+    const denyBtn = doc.createElement("button");
+    denyBtn.textContent = "Deny";
+    denyBtn.style.cssText = `
+          padding: 4px 12px;
+          border: 1px solid var(--border-primary);
+          border-radius: 4px;
+          background: var(--background-primary);
+          cursor: pointer;
+          font-size: 0.85em;
+      `;
+
+    const allowBtn = doc.createElement("button");
+    allowBtn.textContent = "Allow";
+    allowBtn.style.cssText = `
+          padding: 4px 12px;
+          border: none;
+          border-radius: 4px;
+          background: var(--highlight-primary, #1976d2);
+          color: white;
+          cursor: pointer;
+          font-size: 0.85em;
+      `;
+
+    permissionContainer.appendChild(promptText);
+    permissionContainer.appendChild(subText);
+    btnContainer.appendChild(denyBtn);
+    btnContainer.appendChild(allowBtn);
+    permissionContainer.appendChild(btnContainer);
+
+    detailsContent.appendChild(permissionContainer);
+
+    return new Promise<boolean>((resolve) => {
+      const cleanup = () => {
+        permissionContainer.remove();
+      };
+
+      allowBtn.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        cleanup();
+        resolve(true);
+      };
+
+      denyBtn.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        cleanup();
+        resolve(false);
+      };
+    });
   }
 
   /**
@@ -16640,6 +17446,7 @@ Be concise, accurate, and helpful. When referencing papers, cite them by title o
     this.appendMessage(messagesArea, "You", displayText, userMsg.id, true);
 
     input.value = "";
+    currentDraftText = ""; // Clear persisted draft
     input.disabled = true;
     this.isStreaming = true;
 
@@ -16666,6 +17473,187 @@ Be concise, accurate, and helpful. When referencing papers, cite them by title o
       "[data-content]",
     ) as HTMLElement;
     contentDiv.innerHTML = loadingHtml;
+
+    // Initialize active agent session
+    activeAgentSession = {
+      text,
+      fullResponse: "",
+      toolResults: [],
+      isThinking: true,
+      messagesArea: messagesArea,
+      contentDiv: contentDiv,
+      toolContainer: null,
+    };
+
+    const session = activeAgentSession;
+
+    const smartScrollToBottom = () => {
+      if (!messagesArea) return;
+      const threshold = 100; // pixels from bottom
+      const isNearBottom = messagesArea.scrollHeight - messagesArea.scrollTop <= messagesArea.clientHeight + threshold;
+      if (isNearBottom) {
+        messagesArea.scrollTop = messagesArea.scrollHeight;
+      }
+    };
+
+    const observer: AgentUIObserver = {
+      onToken: (token: string, fullResponse: string) => {
+        session.fullResponse = fullResponse;
+        if (session.contentDiv) {
+          // Ensure markdown container exists
+          let mdContainer = session.contentDiv.querySelector(".markdown-content");
+          if (!mdContainer) {
+            // If we are upgrading from a plain div, wrap existing content? 
+            // Or just create it. For streaming, we are usually starting fresh or appending.
+            mdContainer = session.contentDiv.ownerDocument!.createElement("div");
+            mdContainer.className = "markdown-content";
+            // Prepend or append? If tools exist, tools are appended. 
+            // Text usually comes first or wraps. For simplicity, we keep text at top.
+            if (session.contentDiv.firstChild) {
+              session.contentDiv.insertBefore(mdContainer, session.contentDiv.firstChild);
+            } else {
+              session.contentDiv.appendChild(mdContainer);
+            }
+          }
+
+          if (session.isThinking) {
+            mdContainer.innerHTML = "";
+            session.isThinking = false;
+          }
+          // Update only the markdown container
+          mdContainer.setAttribute("data-raw", fullResponse);
+          mdContainer.innerHTML = parseMarkdown(fullResponse);
+        }
+        if (session.messagesArea) {
+          smartScrollToBottom();
+        }
+      },
+      onToolCallStarted: (toolCall: ToolCall) => {
+        session.isThinking = false;
+
+        if (session.messagesArea && session.contentDiv) {
+          const doc = session.messagesArea.ownerDocument!;
+
+          // Initial creation of the process container logic
+          if (!session.toolProcessState) {
+            const processUI = createToolProcessUI(doc);
+            session.toolProcessState = processUI;
+            session.contentDiv.appendChild(processUI.container);
+
+            // Set initial state
+            processUI.setThinking();
+
+            // Store the list container for appending tool cards
+            // The list container is the div inside the details
+            session.toolContainer = processUI.container.querySelector(".tool-list-container") as HTMLElement;
+          }
+
+          const toolUI = createToolExecutionUI(doc, toolCall);
+
+          if (session.toolContainer) {
+            session.toolContainer.appendChild(toolUI);
+          } else {
+            // Fallback if list container missing (shouldn't happen given createToolProcessUI structure)
+            session.contentDiv.appendChild(toolUI);
+          }
+
+          session.toolResults.push({ toolCall, uiElement: toolUI });
+          smartScrollToBottom();
+        } else {
+          session.toolResults.push({ toolCall });
+        }
+      },
+      onToolCallCompleted: (toolCall: ToolCall, result: ToolResult) => {
+        const tr = session.toolResults.find(t => t.toolCall.id === toolCall.id);
+        if (tr) tr.result = result;
+
+        if (session.messagesArea && session.toolContainer && tr?.uiElement) {
+          const doc = session.messagesArea.ownerDocument!;
+          const newUI = createToolExecutionUI(doc, toolCall, result);
+          session.toolContainer.replaceChild(newUI, tr.uiElement);
+          tr.uiElement = newUI;
+          smartScrollToBottom();
+        }
+      },
+      onMessageUpdate: (content: string) => {
+        session.fullResponse = content;
+        if (session.contentDiv) {
+          let mdContainer = session.contentDiv.querySelector(".markdown-content");
+          if (!mdContainer) {
+            mdContainer = session.contentDiv.ownerDocument!.createElement("div");
+            mdContainer.className = "markdown-content";
+            if (session.contentDiv.firstChild) {
+              session.contentDiv.insertBefore(mdContainer, session.contentDiv.firstChild);
+            } else {
+              session.contentDiv.appendChild(mdContainer);
+            }
+          }
+          mdContainer.innerHTML = parseMarkdown(content);
+        }
+      },
+      onComplete: async (content: string) => {
+        session.fullResponse = content;
+        session.isThinking = false;
+
+        // Remove the thinking indicator if it still exists
+        if (session.contentDiv) {
+          const typingIndicator = session.contentDiv.querySelector('.typing-indicator');
+          if (typingIndicator) {
+            typingIndicator.remove();
+          }
+        }
+
+        // Finalize tool process UI if exists
+        if (session.toolProcessState) {
+          const count = session.toolResults.length;
+          session.toolProcessState.setCompleted(count);
+        }
+
+        const assistantMsg: ChatMessage = {
+          id: Date.now().toString(),
+          role: "assistant",
+          content: content,
+          timestamp: new Date(),
+          toolResults: session.toolResults.length > 0 ? session.toolResults : undefined,
+        };
+        conversationMessages.push(assistantMsg);
+
+        // Persist assistant message
+        try {
+          await getMessageStore().appendMessage(assistantMsg);
+
+          // NEW: Auto-titling if this is the first message
+          if (conversationMessages.length <= 2) {
+            await this.updateConversationTitle(text);
+          }
+        } catch (e) {
+          Zotero.debug(`[seerai] Error saving assistant message: ${e}`);
+        }
+
+        // Cleanup session
+        activeAgentSession = null;
+        this.isStreaming = false;
+        input.disabled = false;
+        if (stopBtn) stopBtn.style.display = "none";
+
+        // Clear pasted images after successful send
+        clearImages();
+      },
+      onError: (error: Error) => {
+        Zotero.debug(`[seerai] Agent error: ${error}`);
+        if (session.contentDiv) {
+          if (session.toolProcessState) {
+            session.toolProcessState.setFailed(error.message);
+          } else {
+            session.contentDiv.innerHTML = `<span style="color: #c62828;">Error: ${error.message}</span>`;
+          }
+        }
+        activeAgentSession = null;
+        this.isStreaming = false;
+        input.disabled = false;
+        if (stopBtn) stopBtn.style.display = "none";
+      }
+    };
 
     let isFirstToken = true;
 
@@ -16718,7 +17706,7 @@ Be concise, accurate, and helpful. When referencing papers, cite them by title o
             if (zoteroItem.isRegularItem()) {
               // Fetch text (priority logic inside getPdfTextForItem: Notes -> Indexed PDF -> Metadata)
               // We pass includeNotes=true, includeMetadata=true.
-              const itemContent = await getPdfTextForItem(
+              const itemContent = await Assistant.getPdfTextForItem(
                 zoteroItem,
                 0,
                 true,
@@ -16761,9 +17749,9 @@ Be concise, accurate, and helpful. When referencing papers, cite them by title o
                 const authorStr =
                   creators.length > 0
                     ? creators
-                        .map((c: any) => c.lastName || c.name)
-                        .slice(0, 3)
-                        .join(", ") + (creators.length > 3 ? " et al." : "")
+                      .map((c: any) => c.lastName || c.name)
+                      .slice(0, 3)
+                      .join(", ") + (creators.length > 3 ? " et al." : "")
                     : "";
                 const year =
                   zoteroItem.getField("year") ||
@@ -16837,7 +17825,7 @@ Be concise, accurate, and helpful. When referencing papers, cite them by title o
 
                 // Fetch content with hierarchy: All Notes + (Indexed PDF only if no same-title note)
                 try {
-                  const itemContent = await getPdfTextForItem(
+                  const itemContent = await Assistant.getPdfTextForItem(
                     zoteroItem,
                     0,
                     true,
@@ -16903,7 +17891,7 @@ Be concise, accurate, and helpful. When referencing papers, cite them by title o
 
                   // Fetch content with hierarchy: All Notes + (Indexed PDF only if no same-title note)
                   try {
-                    const itemContent = await getPdfTextForItem(
+                    const itemContent = await Assistant.getPdfTextForItem(
                       zoteroItem,
                       0,
                       true,
@@ -16968,7 +17956,7 @@ Be concise, accurate, and helpful. When referencing papers, cite them by title o
 
                 // Fetch content with hierarchy: All Notes + (Indexed PDF only if no same-title note)
                 try {
-                  const itemContent = await getPdfTextForItem(
+                  const itemContent = await Assistant.getPdfTextForItem(
                     zoteroItem,
                     0,
                     true,
@@ -17028,11 +18016,34 @@ Be concise, accurate, and helpful. When referencing papers, cite them by title o
         }
       }
 
+      const scopeLabel = this.getScopeLabel(this.getScopePref());
       const systemPrompt = `You are a helpful research assistant for Zotero. You help users understand and analyze their academic papers, notes, and research data tables.
+
+Current Library/Folder Scope: ${scopeLabel} (Tools will only find items within this scope).
 
 ${context}${webContext}
 
-Be concise, accurate, and helpful. When referencing papers, cite them by title or author. When referencing table data, cite the table name and relevant columns.${webContext ? " When using web search results, cite the source URL." : ""}`;
+Be concise, accurate, and helpful. When referencing papers, cite them by title or author.
+
+Table Management:
+1. To analyze papers in a structured way, use 'create_table' to start a new analysis or 'add_to_table' to add papers to an existing one.
+2. Use 'create_table_column' to add AI-powered analysis columns (e.g., "Methodology", "Result Summary").
+3. Use 'generate_table_data' to trigger the background analysis of those columns.
+4. Always 'list_tables' first if you need to find an existing table ID. If no table is found, create one.
+5. You can fall back to using 'active' or 'undefined' as a table_id if you believe a table was just created or is active, and the tools will try to find the most recent one.
+
+Research & Paper Discovery:
+1. Use 'search_external' to find new papers on Semantic Scholar.
+2. Use 'import_paper' to bring a paper into Zotero. Specify 'target_collection_id' for subfolders. Set 'trigger_ocr: true' for immediate PDF text extraction.
+3. Use 'find_collection' to find folders by name. If not found, use 'list_collection' to explore or 'create_collection' to make them.
+4. Use 'create_collection' to create new subfolders (e.g., "reviewing" under a project folder).
+5. Use 'list_collection' to browse contents of a folder (child collections and items with metadata).
+6. Use 'move_item' and 'remove_item_from_collection' for organization.
+7. Use 'read_item_content' with 'trigger_ocr: true' to extract text from PDFs for quantitative analysis if notes are missing.
+8. Use 'create_note' with 'collection_id' for standalone notes (e.g., search strategies) inside folders.
+
+${webContext ? " When using web search results, cite the source URL." : ""}`;
+
 
       // Merge pasted images with Zotero item images
       const manuallyPastedParts: VisionMessageContentPart[] = pastedImages.map(
@@ -17122,60 +18133,82 @@ Be concise, accurate, and helpful. When referencing papers, cite them by title o
       const activeModel = getActiveModelConfig();
       const configOverride = activeModel
         ? {
-            apiURL: activeModel.apiURL,
-            apiKey: activeModel.apiKey,
-            model: activeModel.model,
-          }
+          apiURL: activeModel.apiURL,
+          apiKey: activeModel.apiKey,
+          model: activeModel.model,
+        }
         : undefined;
 
-      await openAIService.chatCompletionStream(
-        messages,
-        {
-          onToken: (token) => {
-            fullResponse += token;
-            if (contentDiv) {
-              if (isFirstToken) {
-                contentDiv.innerHTML = ""; // Clear loading indicator
-                isFirstToken = false;
+      // Check if agentic mode is enabled
+      const agenticEnabled = isAgenticModeEnabled();
+      Zotero.debug(`[seerai] Agentic mode: ${agenticEnabled}`);
+
+      if (agenticEnabled) {
+        // Use agentic chat handler with tool calling
+        await handleAgenticChat(
+          text,
+          systemPrompt,
+          conversationMessages.slice(0, -1), // Exclude current user message (already in text)
+          {
+            enableTools: true,
+            includeImages: options.includeImages || manuallyPastedParts.length > 0,
+            pastedImages: pastedImages,
+            permissionHandler: Assistant.handleInlinePermissionRequest,
+          },
+          observer
+        );
+      } else {
+        // Standard chat without tools
+        await openAIService.chatCompletionStream(
+          messages,
+          {
+            onToken: (token) => {
+              fullResponse += token;
+              if (contentDiv) {
+                if (isFirstToken) {
+                  contentDiv.innerHTML = ""; // Clear loading indicator
+                  isFirstToken = false;
+                }
+                contentDiv.setAttribute("data-raw", fullResponse);
+                contentDiv.innerHTML = parseMarkdown(fullResponse);
+                messagesArea.scrollTop = messagesArea.scrollHeight;
               }
-              contentDiv.setAttribute("data-raw", fullResponse);
-              contentDiv.innerHTML = parseMarkdown(fullResponse);
-              messagesArea.scrollTop = messagesArea.scrollHeight;
-            }
-          },
-          onComplete: async (content) => {
-            const assistantMsg: ChatMessage = {
-              id: Date.now().toString(),
-              role: "assistant",
-              content: content,
-              timestamp: new Date(),
-            };
-            conversationMessages.push(assistantMsg);
+            },
+            onComplete: async (content) => {
+              const assistantMsg: ChatMessage = {
+                id: Date.now().toString(),
+                role: "assistant",
+                content: content,
+                timestamp: new Date(),
+              };
+              conversationMessages.push(assistantMsg);
 
-            // Persist assistant message
-            try {
-              await getMessageStore().appendMessage(assistantMsg);
-            } catch (e) {
-              Zotero.debug(`[seerai] Error saving assistant message: ${e}`);
-            }
+              // Persist assistant message
+              try {
+                await getMessageStore().appendMessage(assistantMsg);
+              } catch (e) {
+                Zotero.debug(`[seerai] Error saving assistant message: ${e}`);
+              }
 
-            // Final render with markdown
-            if (contentDiv) {
-              contentDiv.setAttribute("data-raw", content);
-              contentDiv.innerHTML = parseMarkdown(content);
-            }
+              // Final render with markdown
+              if (contentDiv) {
+                contentDiv.setAttribute("data-raw", content);
+                contentDiv.innerHTML = parseMarkdown(content);
+              }
 
-            // Clear pasted images after successful send
-            clearImages();
+              // Clear pasted images after successful send
+              clearImages();
+            },
+            onError: (error) => {
+              if (contentDiv) {
+                contentDiv.innerHTML = `<span style="color: #c62828;">Error: ${error.message}</span>`;
+              }
+            },
           },
-          onError: (error) => {
-            if (contentDiv) {
-              contentDiv.innerHTML = `<span style="color: #c62828;">Error: ${error.message}</span>`;
-            }
-          },
-        },
-        configOverride,
-      );
+          configOverride,
+        );
+      }
+
     } catch (error) {
       const errMsg =
         error instanceof Error && error.message === "Request was cancelled"
@@ -17207,6 +18240,7 @@ Be concise, accurate, and helpful. When referencing papers, cite them by title o
     text: string,
     msgId?: string,
     isLastUserMsg?: boolean,
+    toolResults?: { toolCall: ToolCall; result?: ToolResult }[],
   ): HTMLElement {
     const doc = container.ownerDocument!;
     const isUser = sender === "You";
@@ -17227,9 +18261,9 @@ Be concise, accurate, and helpful. When referencing papers, cite them by title o
         flexShrink: "0", // Prevent bubble from shrinking in flex container
         boxShadow: "0 1px 3px rgba(0,0,0,0.12)",
         position: "relative",
-        backgroundColor: isUser ? "#1976d2" : "#f5f5f5", // Light gray background for assistant bubble
-        color: isUser ? "#ffffff" : "#212121",
-        border: isUser ? "none" : "1px solid #e0e0e0",
+        backgroundColor: isUser ? "var(--accent-blue, #1976d2)" : "var(--background-secondary, #f5f5f5)",
+        color: isUser ? "#ffffff" : "var(--text-primary, #212121)",
+        border: isUser ? "none" : "1px solid var(--border-primary, #e0e0e0)",
       },
     });
 
@@ -17257,10 +18291,47 @@ Be concise, accurate, and helpful. When referencing papers, cite them by title o
       },
     });
 
-    // Copy button (for all messages)
-    const copyBtn = this.createActionButton(doc, "📋", "Copy", () => {
-      this.copyToClipboard(text, copyBtn as HTMLElement);
+    // Copy button (for all messages) with Smart Copy logic
+    let clickTimeout: ReturnType<typeof setTimeout> | null = null;
+
+    // We create the button first, then assign the logic to use the variable reference
+    // Use a temp handler that delegators to the logic defined below
+    const copyBtn = this.createActionButton(doc, "📋", "Click: Copy Text\nDouble-Click: Copy + Logs", () => {
+      // Get the current text from data-raw attribute (for streaming messages)
+      // or from the markdown container's data-raw, or fallback to initial text
+      const msgBubble = (copyBtn as HTMLElement).closest('.message-bubble');
+      const contentEl = msgBubble?.querySelector('[data-content]');
+      const mdContainer = contentEl?.querySelector('.markdown-content');
+      const currentText = mdContainer?.getAttribute('data-raw')
+        || contentEl?.getAttribute('data-raw')
+        || text;
+
+      if (clickTimeout) {
+        // Double click: Clear timer and copy all
+        clearTimeout(clickTimeout);
+        clickTimeout = null;
+
+        let copyText = currentText;
+        if (toolResults && toolResults.length > 0) {
+          const toolLogs = toolResults.map(tr => {
+            const args = tr.toolCall.function.arguments;
+            const result = tr.result ? JSON.stringify(tr.result, null, 2) : "No result";
+            return `[Tool: ${tr.toolCall.function.name}]\nInput: ${args}\nOutput: ${result}`;
+          }).join("\n\n");
+          copyText = `${currentText}\n\n--- Tool Executions ---\n${toolLogs}`;
+        }
+        this.copyToClipboard(copyText, copyBtn as HTMLElement);
+      } else {
+        // First click: Set timer
+        clickTimeout = setTimeout(() => {
+          this.copyToClipboard(currentText, copyBtn as HTMLElement);
+          clickTimeout = null;
+        }, 250);
+      }
     });
+
+
+
     actionsDiv.appendChild(copyBtn);
 
     // Edit button (only for last user message)
@@ -17296,6 +18367,26 @@ Be concise, accurate, and helpful. When referencing papers, cite them by title o
 
     msgDiv.appendChild(headerDiv);
     msgDiv.appendChild(contentDiv);
+
+    // Render persisted tool executions
+    if (toolResults && toolResults.length > 0) {
+      const { container, setCompleted } = createToolProcessUI(doc);
+      container.style.marginTop = "8px";
+
+      const listContainer = container.querySelector(".tool-list-container");
+      const targetContainer = listContainer || container;
+
+      toolResults.forEach(tr => {
+        const toolUI = createToolExecutionUI(doc, tr.toolCall, tr.result);
+        targetContainer.appendChild(toolUI);
+      });
+
+      // Set state to completed
+      setCompleted(toolResults.length);
+
+      msgDiv.appendChild(container);
+    }
+
     container.appendChild(msgDiv);
     container.scrollTop = container.scrollHeight;
 
@@ -17577,7 +18668,7 @@ Be concise, accurate, and helpful. When referencing papers, cite them by title o
         try {
           const zoteroItem = Zotero.Items.get(item.id);
           if (zoteroItem && zoteroItem.isRegularItem()) {
-            const itemContent = await getPdfTextForItem(
+            const itemContent = await Assistant.getPdfTextForItem(
               zoteroItem,
               0,
               true,
@@ -17633,10 +18724,10 @@ Be concise, accurate, and helpful. When referencing papers, cite them by title o
       const activeModel = getActiveModelConfig();
       const configOverride = activeModel
         ? {
-            apiURL: activeModel.apiURL,
-            apiKey: activeModel.apiKey,
-            model: activeModel.model,
-          }
+          apiURL: activeModel.apiURL,
+          apiKey: activeModel.apiKey,
+          model: activeModel.model,
+        }
         : undefined;
 
       await openAIService.chatCompletionStream(
@@ -17706,7 +18797,7 @@ Be concise, accurate, and helpful. When referencing papers, cite them by title o
       : msg.role === "error"
         ? "Error"
         : "Assistant";
-    this.appendMessage(container, sender, msg.content, msg.id, isLastUserMsg);
+    this.appendMessage(container, sender, msg.content, msg.id, isLastUserMsg, msg.toolResults);
   }
 
   /**

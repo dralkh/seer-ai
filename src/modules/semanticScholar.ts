@@ -365,6 +365,108 @@ class SemanticScholarService {
     }
 
     /**
+     * Get papers that cite the given paper (Forward Citations)
+     */
+    async getCitations(
+        paperId: string,
+        limit: number = 10,
+        offset: number = 0
+    ): Promise<{ total: number; data: any[] }> {
+        const fields = [
+            "paperId",
+            "title",
+            "abstract",
+            "year",
+            "citationCount",
+            "authors",
+            "openAccessPdf",
+            "url",
+            "isInfluential",
+            "contexts",
+            "intents"
+        ].join(",");
+
+        const url = `${this.baseUrl}/paper/${paperId}/citations?fields=${fields}&limit=${limit}&offset=${offset}`;
+        Zotero.debug(`[seerai] Semantic Scholar citations: ${url}`);
+
+        try {
+            const response = await this.rateLimitedFetch(url);
+            if (!response.ok) {
+                const text = await response.text();
+                throw new Error(`API error (${response.status}): ${text}`);
+            }
+            const data = await response.json() as unknown as { data: any[], total?: number, offset: number };
+
+            // Map to flat structure for the tool
+            const mappedData = (data.data || []).map((item: any) => ({
+                ...item.citingPaper,
+                isInfluential: item.isInfluential,
+                contexts: item.contexts,
+                intents: item.intents
+            })).filter(p => !!p.paperId);
+
+            return {
+                total: data.total || mappedData.length,
+                data: mappedData
+            };
+        } catch (error) {
+            Zotero.debug(`[seerai] Citations error: ${error}`);
+            throw error;
+        }
+    }
+
+    /**
+     * Get papers cited by the given paper (Backward References)
+     */
+    async getReferences(
+        paperId: string,
+        limit: number = 10,
+        offset: number = 0
+    ): Promise<{ total: number; data: any[] }> {
+        const fields = [
+            "paperId",
+            "title",
+            "abstract",
+            "year",
+            "citationCount",
+            "authors",
+            "openAccessPdf",
+            "url",
+            "isInfluential",
+            "contexts",
+            "intents"
+        ].join(",");
+
+        const url = `${this.baseUrl}/paper/${paperId}/references?fields=${fields}&limit=${limit}&offset=${offset}`;
+        Zotero.debug(`[seerai] Semantic Scholar references: ${url}`);
+
+        try {
+            const response = await this.rateLimitedFetch(url);
+            if (!response.ok) {
+                const text = await response.text();
+                throw new Error(`API error (${response.status}): ${text}`);
+            }
+            const data = await response.json() as unknown as { data: any[], total?: number, offset: number };
+
+            // Map to flat structure for the tool
+            const mappedData = (data.data || []).map((item: any) => ({
+                ...item.citedPaper,
+                isInfluential: item.isInfluential,
+                contexts: item.contexts,
+                intents: item.intents
+            })).filter(p => !!p.paperId);
+
+            return {
+                total: data.total || mappedData.length,
+                data: mappedData
+            };
+        } catch (error) {
+            Zotero.debug(`[seerai] References error: ${error}`);
+            throw error;
+        }
+    }
+
+    /**
      * Get paper recommendations based on positive and negative examples
      */
     async getRecommendations(

@@ -121,6 +121,45 @@ class FirecrawlService {
         });
     }
 
+
+    /**
+     * Scrape a single URL to get its content as markdown
+     */
+    async scrapeUrl(url: string): Promise<FirecrawlSearchResult | null> {
+        if (!this.isConfigured()) {
+            Zotero.debug("[seerai] Firecrawl not configured, skipping scrape");
+            return null;
+        }
+
+        try {
+            Zotero.debug(`[seerai] Firecrawl scrape: ${url}`);
+
+            const response = await this.rateLimitedFetch("/scrape", {
+                method: "POST",
+                body: JSON.stringify({
+                    url,
+                    formats: ["markdown", "metadata"]
+                })
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`Firecrawl error (${response.status}): ${errorText}`);
+            }
+
+            const data = await response.json() as unknown as { success: boolean, data: FirecrawlSearchResult };
+
+            if (data.success && data.data) {
+                return data.data;
+            }
+
+            return null;
+        } catch (error) {
+            Zotero.debug(`[seerai] Firecrawl scrape error: ${error}`);
+            throw error;
+        }
+    }
+
     /**
      * Web Search - for chat context enrichment
      * Returns markdown content from search results for AI context

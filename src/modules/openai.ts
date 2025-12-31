@@ -23,13 +23,50 @@ export interface VisionMessage {
 }
 
 // Union type for any message
-export type AnyOpenAIMessage = OpenAIMessage | VisionMessage;
+export type AnyOpenAIMessage = OpenAIMessage | VisionMessage | ToolCallMessage | ToolResultMessage;
+
+// Tool definition in OpenAI format
+export interface ToolDefinition {
+    type: "function";
+    function: {
+        name: string;
+        description: string;
+        parameters: object;
+    };
+}
+
+// Tool call from API response
+export interface ToolCall {
+    id: string;
+    type: "function";
+    function: {
+        name: string;
+        arguments: string;
+    };
+}
+
+// Message with tool calls (assistant response)
+export interface ToolCallMessage {
+    role: "assistant";
+    content: string | null;
+    tool_calls: ToolCall[];
+}
+
+// Message with tool result (to send back)
+export interface ToolResultMessage {
+    role: "tool";
+    tool_call_id: string;
+    content: string;
+}
 
 export interface StreamCallbacks {
     onToken?: (token: string) => void;
     onComplete?: (fullContent: string) => void;
     onError?: (error: Error) => void;
+    /** Called when tool calls are detected in the response */
+    onToolCalls?: (toolCalls: ToolCall[]) => void;
 }
+
 
 export class OpenAIService {
     // Active AbortController for current request (may not be available in Zotero)
@@ -55,6 +92,13 @@ export class OpenAIService {
      */
     isRequestActive(): boolean {
         return this.currentController !== null;
+    }
+
+    /**
+     * Check if the current request has been aborted
+     */
+    isAbortedState(): boolean {
+        return this.isAborted;
     }
 
     /**
@@ -136,11 +180,13 @@ export class OpenAIService {
     /**
      * Streaming chat completion with token-by-token callbacks
      * @param configOverride Optional config to use instead of preferences (for multi-model support)
+     * @param tools Optional tool definitions for function calling
      */
     async chatCompletionStream(
         messages: AnyOpenAIMessage[],
         callbacks: StreamCallbacks,
-        configOverride?: { apiURL?: string; apiKey?: string; model?: string }
+        configOverride?: { apiURL?: string; apiKey?: string; model?: string },
+        tools?: ToolDefinition[]
     ): Promise<void> {
         const prefs = this.getPrefs();
         const apiURL = configOverride?.apiURL || prefs.apiURL;
@@ -167,18 +213,35 @@ export class OpenAIService {
 
         let fullContent = "";
 
+        // Track tool calls being assembled from streaming chunks
+        const toolCallsInProgress: Map<number, {
+            id: string;
+            type: "function";
+            function: { name: string; arguments: string };
+        }> = new Map();
+
         try {
+            // Build request body
+            const requestBody: Record<string, unknown> = {
+                model,
+                messages,
+                stream: true,
+            };
+
+            // Add tools if provided
+            if (tools && tools.length > 0) {
+                requestBody.tools = tools;
+                // Allow the model to choose whether to call tools
+                requestBody.tool_choice = "auto";
+            }
+
             const response = await fetch(endpoint, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
                     "Authorization": `Bearer ${apiKey}`,
                 },
-                body: JSON.stringify({
-                    model,
-                    messages,
-                    stream: true,
-                }),
+                body: JSON.stringify(requestBody),
                 ...(signal ? { signal } : {}),
             });
 
@@ -205,7 +268,7 @@ export class OpenAIService {
                 if (this.isAborted) {
                     callbacks.onComplete?.(fullContent);
                     Zotero.debug("[seerai] Stream manually aborted");
-                    return;
+                    throw new Error("Request was cancelled");
                 }
 
                 const chunk = decoder.decode(value, { stream: true });
@@ -221,16 +284,60 @@ export class OpenAIService {
 
                         try {
                             const parsed = JSON.parse(data);
-                            const token = parsed.choices?.[0]?.delta?.content;
+                            const delta = parsed.choices?.[0]?.delta;
 
-                            if (token) {
-                                fullContent += token;
-                                callbacks.onToken?.(token);
+                            // Handle regular content tokens
+                            if (delta?.content) {
+                                fullContent += delta.content;
+                                callbacks.onToken?.(delta.content);
+                            }
+
+                            // Handle tool calls (streamed incrementally)
+                            if (delta?.tool_calls) {
+                                for (const toolCallDelta of delta.tool_calls) {
+                                    const index = toolCallDelta.index ?? 0;
+
+                                    // Initialize tool call if this is the first chunk for this index
+                                    if (!toolCallsInProgress.has(index)) {
+                                        toolCallsInProgress.set(index, {
+                                            id: toolCallDelta.id || "",
+                                            type: "function",
+                                            function: {
+                                                name: toolCallDelta.function?.name || "",
+                                                arguments: ""
+                                            }
+                                        });
+                                    }
+
+                                    const toolCall = toolCallsInProgress.get(index)!;
+
+                                    // Update with new data
+                                    if (toolCallDelta.id) {
+                                        toolCall.id = toolCallDelta.id;
+                                    }
+                                    if (toolCallDelta.function?.name) {
+                                        toolCall.function.name = toolCallDelta.function.name;
+                                    }
+                                    if (toolCallDelta.function?.arguments) {
+                                        toolCall.function.arguments += toolCallDelta.function.arguments;
+                                    }
+                                }
                             }
                         } catch (e) {
                             // Skip malformed JSON chunks
                         }
                     }
+                }
+            }
+
+            // After stream ends, check if we have tool calls to dispatch
+            if (toolCallsInProgress.size > 0) {
+                const toolCalls: ToolCall[] = Array.from(toolCallsInProgress.values());
+                Zotero.debug(`[seerai] Stream completed with ${toolCalls.length} tool call(s)`);
+
+                // Invoke tool calls callback
+                if (callbacks.onToolCalls) {
+                    callbacks.onToolCalls(toolCalls);
                 }
             }
 
@@ -240,7 +347,7 @@ export class OpenAIService {
                 // Call onComplete with partial content when aborted
                 callbacks.onComplete?.(fullContent);
                 Zotero.debug("[seerai] Stream aborted by user");
-                return;
+                throw new Error("Request was cancelled");
             }
             callbacks.onError?.(error as Error);
             Zotero.logError(error as Error);
@@ -249,6 +356,7 @@ export class OpenAIService {
             this.currentController = null;
         }
     }
+
 
     async testConnection(): Promise<boolean> {
         try {

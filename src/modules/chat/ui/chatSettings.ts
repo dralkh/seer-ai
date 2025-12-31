@@ -2,6 +2,7 @@
 import { getModelConfigs, getActiveModelConfig, setActiveModelId } from '../modelConfig';
 import { getChatStateManager } from '../stateManager';
 import { firecrawlService } from '../../firecrawl';
+import { TOOL_NAMES } from '../tools/toolTypes';
 
 export interface ChatSettingsOptions {
     onModeChange?: (mode: 'lock' | 'default' | 'explore') => void;
@@ -234,6 +235,9 @@ export function showChatSettings(doc: Document, anchor: HTMLElement, options: Ch
             btn.style.color = 'var(--text-primary)';
 
             stateManager.setOptions({ selectionMode: m.value as any });
+            // Persist selection mode to preferences
+            Zotero.Prefs.set("extensions.seerai.selectionMode", m.value);
+            Zotero.debug(`[seerai] Selection mode changed to: ${m.value}`);
             options.onModeChange?.(m.value as any);
         });
 
@@ -351,6 +355,342 @@ export function showChatSettings(doc: Document, anchor: HTMLElement, options: Ch
         webSection.appendChild(limitContainer);
         body.appendChild(webSection);
     }
+
+    // --- 4. Agent Config (Max Iterations & Auto-OCR) ---
+    const configSection = doc.createElement('div');
+    configSection.style.marginTop = '8px';
+    configSection.style.borderTop = '1px solid var(--border-primary)';
+    configSection.style.paddingTop = '8px';
+    configSection.style.display = 'flex';
+    configSection.style.flexDirection = 'column';
+    configSection.style.gap = '8px';
+
+    // Header
+    const configHeader = doc.createElement('div');
+    configHeader.innerText = 'Agent Settings';
+    configHeader.style.marginBottom = '2px';
+    configHeader.style.fontSize = '11px';
+    configHeader.style.color = 'var(--text-secondary, #666)';
+    configSection.appendChild(configHeader);
+
+    // Max Iterations Row
+    const iterRow = doc.createElement('div');
+    Object.assign(iterRow.style, {
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        fontSize: '11px'
+    });
+
+    const iterLabel = doc.createElement('span');
+    iterLabel.innerText = 'Max Iterations:';
+
+    const iterInput = doc.createElement('input');
+    iterInput.type = 'number';
+    iterInput.min = '1';
+    iterInput.max = '50';
+    const currentMaxIter = Zotero.Prefs.get("extensions.seerai.agentMaxIterations") || 10;
+    iterInput.value = String(currentMaxIter);
+    Object.assign(iterInput.style, {
+        width: '40px',
+        padding: '2px',
+        fontSize: '11px',
+        border: '1px solid var(--border-primary)',
+        borderRadius: '4px',
+        textAlign: 'center'
+    });
+
+    iterInput.addEventListener('change', () => {
+        let val = parseInt(iterInput.value);
+        if (val < 1) val = 1;
+        if (val > 50) val = 50;
+        iterInput.value = String(val);
+        Zotero.Prefs.set("extensions.seerai.agentMaxIterations", val);
+        Zotero.debug(`[seerai] Max iterations set to ${val}`);
+    });
+    iterInput.addEventListener('click', (e) => e.stopPropagation());
+
+    iterRow.appendChild(iterLabel);
+    iterRow.appendChild(iterInput);
+    configSection.appendChild(iterRow);
+
+    // Auto-OCR Row
+    const ocrRow = doc.createElement('div');
+    Object.assign(ocrRow.style, {
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        fontSize: '11px'
+    });
+
+    const ocrLabel = doc.createElement('span');
+    ocrLabel.innerText = 'Auto-OCR Papers:';
+
+    // Toggle Switch for OCR
+    const ocrToggleWrapper = doc.createElement('div');
+    const isOcrEnabled = Zotero.Prefs.get("extensions.seerai.agentAutoOcr") || false;
+
+    Object.assign(ocrToggleWrapper.style, {
+        position: 'relative',
+        width: '28px',
+        height: '16px',
+        backgroundColor: isOcrEnabled ? '#4cd964' : '#e5e5ea',
+        borderRadius: '8px',
+        cursor: 'pointer',
+        transition: 'background 0.2s'
+    });
+
+    const ocrToggleKnob = doc.createElement('div');
+    Object.assign(ocrToggleKnob.style, {
+        position: 'absolute',
+        top: '2px',
+        left: isOcrEnabled ? '14px' : '2px',
+        width: '12px',
+        height: '12px',
+        backgroundColor: '#fff',
+        borderRadius: '50%',
+        boxShadow: '0 1px 2px rgba(0,0,0,0.2)',
+        transition: 'left 0.2s'
+    });
+
+    ocrToggleWrapper.appendChild(ocrToggleKnob);
+
+    ocrToggleWrapper.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const current = Zotero.Prefs.get("extensions.seerai.agentAutoOcr") || false;
+        const newState = !current;
+        Zotero.Prefs.set("extensions.seerai.agentAutoOcr", newState);
+
+        // Update UI
+        ocrToggleWrapper.style.backgroundColor = newState ? '#4cd964' : '#e5e5ea';
+        ocrToggleKnob.style.left = newState ? '14px' : '2px';
+        Zotero.debug(`[seerai] Auto-OCR set to ${newState}`);
+    });
+
+    ocrRow.appendChild(ocrLabel);
+    ocrRow.appendChild(ocrToggleWrapper);
+    configSection.appendChild(ocrRow);
+
+    body.appendChild(configSection);
+
+    // --- 5. Tool Permissions ---
+    const permSection = doc.createElement('div');
+    permSection.style.marginTop = '8px';
+    permSection.style.borderTop = '1px solid var(--border-primary)';
+    permSection.style.paddingTop = '8px';
+
+    // Collapsible Header
+    const permHeader = doc.createElement('div');
+    Object.assign(permHeader.style, {
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        cursor: 'pointer',
+        fontSize: '11px',
+        color: 'var(--text-secondary, #666)',
+        userSelect: 'none'
+    });
+
+    const permLabel = doc.createElement('div');
+    permLabel.innerText = 'Tool Permissions';
+    const permIcon = doc.createElement('span');
+    permIcon.innerText = '▶'; // Collapsed state
+    permIcon.style.fontSize = '8px';
+    permIcon.style.transition = 'transform 0.2s';
+
+    permHeader.appendChild(permLabel);
+    permHeader.appendChild(permIcon);
+    permSection.appendChild(permHeader);
+
+    // List Container (Hidden by default)
+    const permList = doc.createElement('div');
+    Object.assign(permList.style, {
+        display: 'none',
+        flexDirection: 'column',
+        gap: '2px', // Compact
+        marginTop: '6px',
+        maxHeight: '200px',
+        overflowY: 'auto',
+        fontSize: '11px',
+        border: '1px solid var(--border-secondary, #eee)',
+        borderRadius: '4px',
+        padding: '2px'
+    });
+
+    // Toggle behavior
+    permHeader.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const isHidden = permList.style.display === 'none';
+        permList.style.display = isHidden ? 'flex' : 'none';
+        permIcon.style.transform = isHidden ? 'rotate(90deg)' : 'rotate(0deg)';
+    });
+
+    // Tool List Logic
+    const toolDisplayNames: Record<string, string> = {
+        [TOOL_NAMES.SEARCH_WEB]: "Search Web (Firecrawl)",
+        [TOOL_NAMES.READ_WEBPAGE]: "Read Webpage",
+        [TOOL_NAMES.GET_CITATIONS]: "Get Citations",
+        [TOOL_NAMES.GET_REFERENCES]: "Get References",
+        [TOOL_NAMES.SEARCH_LIBRARY]: "Search Library",
+        [TOOL_NAMES.GET_ITEM_METADATA]: "Get Metadata",
+        [TOOL_NAMES.READ_ITEM_CONTENT]: "Read Content",
+        [TOOL_NAMES.CREATE_NOTE]: "Create Note",
+        [TOOL_NAMES.MOVE_ITEM]: "Move Item",
+        [TOOL_NAMES.REMOVE_ITEM_FROM_COLLECTION]: "Remove from Collection",
+        [TOOL_NAMES.ADD_TO_CONTEXT]: "Add to Context",
+        [TOOL_NAMES.REMOVE_FROM_CONTEXT]: "Remove from Context",
+        [TOOL_NAMES.LIST_CONTEXT]: "List Context",
+        [TOOL_NAMES.LIST_TABLES]: "List Tables",
+        [TOOL_NAMES.CREATE_TABLE]: "Create Table",
+        [TOOL_NAMES.ADD_TO_TABLE]: "Add to Table",
+        [TOOL_NAMES.CREATE_TABLE_COLUMN]: "Create Table Column",
+        [TOOL_NAMES.GENERATE_TABLE_DATA]: "Generate Table Data",
+        [TOOL_NAMES.READ_TABLE]: "Read Table",
+        [TOOL_NAMES.SEARCH_EXTERNAL]: "Search External",
+        [TOOL_NAMES.IMPORT_PAPER]: "Import Paper",
+        [TOOL_NAMES.FIND_COLLECTION]: "Find Collection",
+        [TOOL_NAMES.CREATE_COLLECTION]: "Create Collection",
+        [TOOL_NAMES.LIST_COLLECTION]: "List Collection",
+    };
+
+    // --- BULK ACTIONS ---
+    const bulkContainer = doc.createElement('div');
+    Object.assign(bulkContainer.style, {
+        display: 'flex',
+        justifyContent: 'space-between',
+        marginBottom: '6px',
+        padding: '0 2px'
+    });
+
+    const createBulkBtn = (label: string, mode: string, title: string) => {
+        const btn = doc.createElement('div');
+        Object.assign(btn.style, {
+            fontSize: '10px',
+            padding: '2px 6px',
+            borderRadius: '3px',
+            cursor: 'pointer',
+            backgroundColor: 'var(--background-secondary)',
+            border: '1px solid var(--border-primary)',
+            color: 'var(--text-primary)'
+        });
+        btn.innerText = label;
+        btn.title = title;
+
+        btn.onmouseover = () => btn.style.backgroundColor = 'var(--background-tertiary)';
+        btn.onmouseout = () => btn.style.backgroundColor = 'var(--background-secondary)';
+
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const allTools = Object.values(TOOL_NAMES);
+            const perms: Record<string, string> = {};
+            allTools.forEach(t => perms[t] = mode);
+            Zotero.Prefs.set("extensions.seerai.tool_permissions", JSON.stringify(perms));
+            // Update UI
+            renderToolList(perms);
+            Zotero.debug(`[seerai] Bulk set all tools to: ${mode}`);
+        });
+
+        return btn;
+    };
+
+    bulkContainer.appendChild(createBulkBtn("✅ All", "allow", "Allow All Tools"));
+    bulkContainer.appendChild(createBulkBtn("❓ All", "ask", "Ask for All Tools"));
+    bulkContainer.appendChild(createBulkBtn("⛔ All", "deny", "Disable All Tools"));
+    permList.appendChild(bulkContainer);
+
+    const toolsContainer = doc.createElement('div');
+    toolsContainer.style.display = 'flex';
+    toolsContainer.style.flexDirection = 'column';
+    permList.appendChild(toolsContainer);
+
+    const renderToolList = (currentPerms: Record<string, string>) => {
+        toolsContainer.innerHTML = ''; // Clear existing
+        const allTools = Object.values(TOOL_NAMES);
+
+        allTools.forEach(toolKey => {
+            const row = doc.createElement('div');
+            Object.assign(row.style, {
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                padding: '2px 4px',
+                borderRadius: '2px',
+            });
+
+            // Hover effect
+            row.onmouseover = () => { row.style.background = "var(--fill-quinary, rgba(0,0,0,0.02))"; };
+            row.onmouseout = () => { row.style.background = "transparent"; };
+
+            const nameLabel = doc.createElement('span');
+            nameLabel.innerText = toolDisplayNames[toolKey] || toolKey;
+            nameLabel.title = toolKey; // Tooltip full name
+            nameLabel.style.overflow = "hidden";
+            nameLabel.style.textOverflow = "ellipsis";
+            nameLabel.style.whiteSpace = "nowrap";
+            nameLabel.style.flex = "1";
+
+            // Status Button
+            const statusBtn = doc.createElement('div');
+            const perm = currentPerms[toolKey] || 'allow';
+
+            const updateStatusIcon = (p: string) => {
+                if (p === 'allow') {
+                    statusBtn.innerText = '✅';
+                    statusBtn.title = "Allowed";
+                    statusBtn.style.opacity = '1';
+                } else if (p === 'ask') {
+                    statusBtn.innerText = '❓';
+                    statusBtn.title = "Ask Me";
+                    statusBtn.style.opacity = '0.8';
+                } else {
+                    statusBtn.innerText = '⛔';
+                    statusBtn.title = "Disabled";
+                    statusBtn.style.opacity = '0.6';
+                }
+            };
+
+            updateStatusIcon(perm);
+            statusBtn.style.cursor = 'pointer';
+            statusBtn.style.fontSize = '12px';
+            statusBtn.style.width = '20px';
+            statusBtn.style.textAlign = 'center';
+
+            // Cycle Click Handler
+            statusBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                // Refresh perms to ensure we have latest state if modified elsewhere
+                const freshPermsStr = Zotero.Prefs.get("extensions.seerai.tool_permissions") as string;
+                let freshPerms: Record<string, string> = {};
+                try { freshPerms = JSON.parse(freshPermsStr || "{}"); } catch (e) { }
+
+                const curr = freshPerms[toolKey] || 'allow';
+                let next = 'allow';
+                if (curr === 'allow') next = 'ask';
+                else if (curr === 'ask') next = 'deny';
+                else next = 'allow';
+
+                freshPerms[toolKey] = next;
+                Zotero.Prefs.set("extensions.seerai.tool_permissions", JSON.stringify(freshPerms));
+
+                updateStatusIcon(next);
+                Zotero.debug(`[seerai] Tool permission changed: ${toolKey} -> ${next}`);
+            });
+
+            row.appendChild(nameLabel);
+            row.appendChild(statusBtn);
+            toolsContainer.appendChild(row);
+        });
+    };
+
+    const currentPermsStr = Zotero.Prefs.get("extensions.seerai.tool_permissions") as string;
+    let currentPerms: Record<string, string> = {};
+    try {
+        currentPerms = JSON.parse(currentPermsStr || "{}");
+    } catch (e) { }
+    renderToolList(currentPerms);
+
+    permSection.appendChild(permList);
+    body.appendChild(permSection);
 
     container.appendChild(body);
     parentContainer.appendChild(container);

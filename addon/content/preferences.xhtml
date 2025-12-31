@@ -33,6 +33,29 @@
 
   <html:hr style="margin: 16px 0;" />
 
+  <!-- MCP Server Integration -->
+  <label>
+    <html:h3>MCP Server Integration (Claude Desktop)</html:h3>
+  </label>
+  <vbox style="margin-bottom: 12px; padding: 10px; background: rgba(0,0,0,0.03); border-radius: 4px;">
+    <hbox align="center" style="margin-bottom: 8px; gap: 16px;">
+      <button label="GitHub Repo" oncommand="Zotero.launchURL('https://github.com/dralkh/seerai');" />
+      <button label="Download Release" oncommand="Zotero.launchURL('https://github.com/dralkh/seerai/releases');" />
+    </hbox>
+
+    <description style="margin-bottom: 4px; font-weight: bold;">Configuration (mcp_config.json):</description>
+    <hbox style="margin-bottom: 4px;">
+      <html:textarea id="zotero-prefpane-__addonRef__-mcpConfigJson" readonly="true"
+        style="width: 100%; height: 120px; font-family: monospace; font-size: 11px; padding: 8px; border: 1px solid #ccc; border-radius: 4px; resize: vertical;" />
+    </hbox>
+
+    <hbox pack="end">
+      <button id="zotero-prefpane-__addonRef__-copyMcpConfig" label="Copy Config to Clipboard" />
+    </hbox>
+  </vbox>
+
+  <html:hr style="margin: 16px 0;" />
+
   <!-- OCR Configurations -->
   <label>
     <html:h3 data-l10n-id="pref-datalab-title">OCR Configurations</html:h3>

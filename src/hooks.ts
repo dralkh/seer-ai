@@ -5,6 +5,7 @@ import { registerPrefsScripts } from "./modules/preferenceScript";
 import { createZToolkit } from "./utils/ztoolkit";
 import { OcrService } from "./modules/ocr";
 import { initThemeObserver } from "./utils/theme";
+import { registerApiEndpoints } from "./modules/api";
 
 const ocrService = new OcrService();
 
@@ -19,6 +20,9 @@ async function onStartup() {
 
   Assistant.register();
   BasicExampleFactory.registerPrefs();
+
+  // Register MCP API endpoints
+  registerApiEndpoints();
 
   await Promise.all(
     Zotero.getMainWindows().map((win) => onMainWindowLoad(win)),

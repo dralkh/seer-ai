@@ -788,14 +788,95 @@ html.dark .chip-tables {
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
 }
 
-.placeholder-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: background 0.1s ease;
+/* ==================== History Popover Styles ==================== */
+
+.history-popover {
+  animation: slide-up 0.2s ease-out;
+}
+
+.history-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.history-list::-webkit-scrollbar-thumb {
+  background-color: var(--border-secondary);
+  border-radius: 3px;
+}
+
+.history-item {
+  transition: background 0.2s ease;
+}
+
+.history-item:hover {
+  background-color: var(--background-secondary) !important;
+}
+
+.history-item.active {
+  background-color: var(--paper-checked-background) !important;
+  border-left: 3px solid var(--highlight-primary) !important;
+}
+
+.history-item .delete-btn:hover {
+  color: #ff4444;
+  transform: scale(1.1);
+}
+
+@keyframes slide-up {
+  from {
+    transform: translateY(10px);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.history-item.active {
+  background-color: var(--background-primary) !important;
+  border-left: 3px solid var(--highlight-primary);
+}
+
+.history-item:hover .delete-btn {
+  display: block !important;
+}
+
+.delete-btn {
+  opacity: 0.6;
+  transition: opacity 0.2s, color 0.2s;
+}
+
+.delete-btn:hover {
+  opacity: 1;
+  color: #dc3545 !important;
+}
+
+.new-chat-btn:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+.new-chat-btn:active {
+  transform: translateY(0);
+}
+
+/* Scrollbar styling for history list */
+.history-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.history-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.history-list::-webkit-scrollbar-thumb {
+  background: var(--border-primary);
+  border-radius: 3px;
+}
+
+.history-list::-webkit-scrollbar-thumb:hover {
+  background: var(--text-tertiary);
 }
 
 .placeholder-item:hover {

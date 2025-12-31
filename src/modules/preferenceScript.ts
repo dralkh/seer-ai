@@ -217,6 +217,51 @@ function bindPrefEvents() {
   bindInput(`zotero-prefpane-${config.addonRef}-firecrawlApiKey`, "firecrawlApiKey");
   bindInput(`zotero-prefpane-${config.addonRef}-firecrawlApiUrl`, "firecrawlApiUrl");
   bindInput(`zotero-prefpane-${config.addonRef}-firecrawlSearchLimit`, "firecrawlSearchLimit");
+
+  // Initialize MCP Integration UI
+  initMcpIntegrationUI();
+}
+
+/**
+ * Initialize MCP Integration UI
+ */
+function initMcpIntegrationUI() {
+  const doc = addon.data.prefs!.window.document;
+  const configArea = doc.getElementById(`zotero-prefpane-${config.addonRef}-mcpConfigJson`) as any; // HTMLTextAreaElement
+  const copyBtn = doc.getElementById(`zotero-prefpane-${config.addonRef}-copyMcpConfig`);
+
+  if (!configArea) return;
+
+  // Default config showing structure
+  const mcpConfig = {
+    "mcpServers": {
+      "seerai-zotero": {
+        "command": "node",
+        "args": ["/absolute/path/to/seerai-mcp.cjs"]
+      }
+    }
+  };
+
+  configArea.value = JSON.stringify(mcpConfig, null, 2);
+
+  copyBtn?.addEventListener("command", () => {
+    // Copy to clipboard
+    try {
+      const clipboard = (Components.classes as any)["@mozilla.org/widget/clipboardhelper;1"]
+        .getService((Components.interfaces as any).nsIClipboardHelper);
+      clipboard.copyString(configArea.value);
+
+      // Visual feedback
+      const originalLabel = copyBtn.getAttribute("label");
+      copyBtn.setAttribute("label", "Copied!");
+      setTimeout(() => {
+        copyBtn.setAttribute("label", originalLabel || "Copy Config to Clipboard");
+      }, 2000);
+    } catch (e) {
+      addon.data.prefs!.window.alert("Failed to copy to clipboard");
+      console.error(e);
+    }
+  });
 }
 
 /**

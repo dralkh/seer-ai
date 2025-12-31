@@ -15,7 +15,7 @@
     <img src="https://img.shields.io/badge/License-MIT-blue.svg" />
   </a>
   <a href="https://github.com/dralkh/seerai/releases">
-    <img src="https://img.shields.io/badge/Version-3.0.0-blue" />
+    <img src="https://img.shields.io/badge/Version-1.4.0-blue" />
   </a>
 </p>
 
@@ -61,6 +61,18 @@
   - **PDF Discovery**: Automatically finds and attaches PDFs during import.
   - **Source Link**: Fallback to source links if PDFs are unavailable.
   - **Status Indicators**: Clear feedback on import status (⬇️ Importing, ✅ Imported, ⚠️ Failed).
+
+### Agentic Chat & Tool Use
+- **Autonomous Agents**: AI can now use tools to interact with your Zotero library and the web.
+- **Rich Tool Suite**:
+  - **Search Tool**: Search through your library with advanced filters.
+  - **Collection Tool**: Manage collections and move items.
+  - **Note Tool**: Read, create, and modify item notes.
+  - **Read Tool**: Extract text from PDFs and items for deep analysis.
+  - **Citation Tool**: Generate citations and bibliographies.
+  - **Table Tool**: Interact with and generate data for your Paper Tables.
+  - **Web Tool**: Search the web and fetch content using Firecrawl.
+- **Model-as-a-Tool**: Seamless integration with LLM tool-calling capabilities.
 
 ### Papers Tables
 - **Structured Extraction**: Extract specific data points from multiple papers into a comparative table.
@@ -141,6 +153,15 @@ Choose your preferred text extraction engine:
 - **Semantic Scholar**: Add your [API Key](https://www.semanticscholar.org/product/api) for higher rate limits and faster searches.
 - **Firecrawl**: Add [API Key](https://firecrawl.dev) to enable deep web search capabilities - local instance with ([GitHub](https://github.com/firecrawl/firecrawl)).
 
+### 4. MCP Server & API
+Seer-AI now includes a Model Context Protocol (MCP) server and a local API for external integrations.
+- **MCP Server**: Located in [`mcp-server/`](mcp-server/README.md). Allows external LLMs (like Claude Desktop) to interact with your Zotero library. See the [MCP Setup Guide](mcp-server/README.md) for configuration instructions.
+- **Local API**: Provides endpoints for chat, tool execution, and library management.
+  - **Settings → seerai → API**.
+  - Default Port: `23119`
+
+This mode requires highly sophistecated models with good tool function capabilities to function properly.
+
 ---
 
 ## Usage Guide
@@ -197,8 +218,8 @@ Enhanced search functionality to help users find relevant literature more effect
 - **URL Discovery** — Usage Firecrawl API for pdf discovery
 
 ### Others
-Citations referencing within tables and chat on generation -
-MCP
+Citations referencing within tables and chat on generation 
+Internal custom support mcp json presets
 Connectors
 UI revamp
 

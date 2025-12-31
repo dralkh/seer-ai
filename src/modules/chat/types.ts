@@ -118,6 +118,7 @@ export interface ChatMessage {
     isStreaming?: boolean;
     canRetry?: boolean;   // For assistant messages - user can regenerate
     canEdit?: boolean;    // For user messages - can be edited
+    toolResults?: { toolCall: any; result?: any }[]; // Persisted tool executions
 }
 
 // AI Model Configuration - user-defined model settings
@@ -140,6 +141,22 @@ export interface Conversation {
     updatedAt: Date;
     messages: ChatMessage[];
     states: ChatStates;
+}
+
+// Metadata for history listing
+export interface ConversationMetadata {
+    id: string;
+    title: string;
+    createdAt: Date;
+    updatedAt: Date;
+    messageCount: number;
+    preview: string; // Snippet of the last message
+}
+
+// Index of all conversations
+export interface ConversationHistoryIndex {
+    conversations: ConversationMetadata[];
+    lastActiveId?: string;
 }
 
 // Selection mode for navigation behavior

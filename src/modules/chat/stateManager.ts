@@ -303,6 +303,17 @@ let globalStateManager: ChatStateManager | null = null;
 export function getChatStateManager(): ChatStateManager {
     if (!globalStateManager) {
         globalStateManager = new ChatStateManager();
+
+        // Load persisted selection mode from preferences
+        try {
+            const savedMode = Zotero.Prefs.get("extensions.seerai.selectionMode") as string;
+            if (savedMode && ['lock', 'default', 'explore'].includes(savedMode)) {
+                globalStateManager.setOptions({ selectionMode: savedMode as any });
+                Zotero.debug(`[seerai] Loaded selection mode from prefs: ${savedMode}`);
+            }
+        } catch (e) {
+            Zotero.debug(`[seerai] Could not load selection mode pref: ${e}`);
+        }
     }
     return globalStateManager;
 }

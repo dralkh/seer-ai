@@ -1,7 +1,7 @@
 {
   "name": "seerai",
   "type": "module",
-  "version": "3.0.0",
+  "version": "1.4.0",
   "description": "seerai - Intelligent Research Assistant for Zotero",
   "config": {
     "addonName": "seerai",
@@ -30,6 +30,7 @@
     "update-deps": "npm update --save"
   },
   "dependencies": {
+    "zod": "^4.3.2",
     "zotero-plugin-toolkit": "^5.1.0-beta.13"
   },
   "devDependencies": {

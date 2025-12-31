@@ -29,6 +29,13 @@ declare namespace _ZoteroTypes {
       "firecrawlApiUrl": string;
       "firecrawlSearchLimit": number;
       "firecrawlMaxConcurrent": number;
+      "agenticMode": boolean;
+      "libraryScope": string;
+      "agentMaxResults": number;
+      "agentMaxContentLength": number;
+      "agentMaxIterations": number;
+      "agentAutoOcr": boolean;
+      "selectionMode": string;
     };
   }
 }

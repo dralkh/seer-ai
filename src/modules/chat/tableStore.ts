@@ -20,12 +20,33 @@ export class TableStore {
     private configFile: string;
     private historyFile: string;
     private presetsFile: string;
+    private writeLock: Promise<void> = Promise.resolve();
 
     constructor() {
         this.dataDir = PathUtils.join(Zotero.DataDirectory.dir, config.addonRef);
         this.configFile = PathUtils.join(this.dataDir, "table_config.json");
         this.historyFile = PathUtils.join(this.dataDir, "table_history.json");
         this.presetsFile = PathUtils.join(this.dataDir, "column_presets.json");
+    }
+
+    /**
+     * Execute an operation with write lock to prevent concurrent modifications
+     */
+    private async withWriteLock<T>(operation: () => Promise<T>): Promise<T> {
+        // Chain onto the existing lock
+        const previousLock = this.writeLock;
+        let releaseLock: () => void;
+        this.writeLock = new Promise(resolve => { releaseLock = resolve; });
+
+        try {
+            // Wait for previous operations to complete
+            await previousLock;
+            // Execute our operation
+            return await operation();
+        } finally {
+            // Release lock for next operation
+            releaseLock!();
+        }
     }
 
     private async ensureDirectory(): Promise<void> {
@@ -89,22 +110,25 @@ export class TableStore {
 
     /**
      * Save the current table configuration
+     * Uses write lock to prevent race conditions during concurrent saves
      */
     async saveConfig(config: TableConfig): Promise<void> {
-        try {
-            await this.ensureDirectory();
+        return this.withWriteLock(async () => {
+            try {
+                await this.ensureDirectory();
 
-            // Update the timestamp
-            config.updatedAt = new Date().toISOString();
+                // Update the timestamp
+                config.updatedAt = new Date().toISOString();
 
-            const encoder = new TextEncoder();
-            await IOUtils.write(this.configFile, encoder.encode(JSON.stringify(config, null, 2)));
+                const encoder = new TextEncoder();
+                await IOUtils.write(this.configFile, encoder.encode(JSON.stringify(config, null, 2)));
 
-            // Add to history
-            await this.addToHistory(config);
-        } catch (e) {
-            Zotero.debug(`[seerai] Error saving table config: ${e}`);
-        }
+                // Add to history (already within lock, so call internal version)
+                await this.addToHistoryInternal(config);
+            } catch (e) {
+                Zotero.debug(`[seerai] Error saving table config: ${e}`);
+            }
+        });
     }
 
     /**
@@ -138,6 +162,36 @@ export class TableStore {
     }
 
     /**
+     * Atomically update a table configuration
+     * This ensures read-modify-write happens within a single lock to prevent race conditions
+     */
+    async updateTable(tableId: string, modifier: (table: TableConfig) => void): Promise<TableConfig | null> {
+        return this.withWriteLock(async () => {
+            const history = await this.loadHistory();
+            const entry = history.entries.find(e => e.config.id === tableId);
+
+            if (!entry) {
+                Zotero.debug(`[seerai] updateTable: Table ${tableId} not found`);
+                return null;
+            }
+
+            // Apply the modification
+            modifier(entry.config);
+            entry.config.updatedAt = new Date().toISOString();
+            entry.usedAt = new Date().toISOString();
+
+            // Save the updated history
+            const encoder = new TextEncoder();
+            await IOUtils.write(this.historyFile, encoder.encode(JSON.stringify(history, null, 2)));
+
+            // Also save as current config
+            await IOUtils.write(this.configFile, encoder.encode(JSON.stringify(entry.config, null, 2)));
+
+            return entry.config;
+        });
+    }
+
+    /**
      * Save table configuration history (for delete operations)
      */
     async saveHistory(history: TableHistory): Promise<void> {
@@ -151,24 +205,31 @@ export class TableStore {
     }
 
     /**
-     * Add a configuration to history
+     * Add a configuration to history (public API - uses lock)
      */
     async addToHistory(config: TableConfig): Promise<void> {
+        return this.withWriteLock(() => this.addToHistoryInternal(config));
+    }
+
+    /**
+     * Internal: Add a configuration to history (no lock - called from within saveConfig)
+     */
+    private async addToHistoryInternal(config: TableConfig): Promise<void> {
         try {
             const history = await this.loadHistory();
 
             // Check if this config already exists in history (by ID)
             const existingIndex = history.entries.findIndex(e => e.config.id === config.id);
             if (existingIndex >= 0) {
-                // Update existing entry
+                // Update existing entry with DEEP clone of columns to preserve all changes
                 history.entries[existingIndex] = {
-                    config: { ...config },
+                    config: { ...config, columns: config.columns ? [...config.columns] : [] },
                     usedAt: new Date().toISOString(),
                 };
             } else {
                 // Add new entry
                 history.entries.unshift({
-                    config: { ...config },
+                    config: { ...config, columns: config.columns ? [...config.columns] : [] },
                     usedAt: new Date().toISOString(),
                 });
 
