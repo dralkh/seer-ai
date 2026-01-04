@@ -36,6 +36,7 @@ import {
     ReadWebPageParams,
     GetCitationsParams,
     GetReferencesParams,
+    GenerateItemTagsParams,
 } from "./toolTypes";
 
 import { safeValidateToolArgs, formatZodError } from "./schemas";
@@ -61,6 +62,7 @@ import {
 } from "./collectionTool";
 import { executeSearchWeb, executeReadWebPage } from "./webTool";
 import { executeGetCitations, executeGetReferences } from "./citationTool";
+import { executeGenerateItemTags } from "./tagTool";
 
 /**
  * Parse a tool call from API format to typed format
@@ -262,6 +264,13 @@ export async function executeToolCall(
             case TOOL_NAMES.GET_REFERENCES:
                 return await executeGetReferences(
                     validatedArgs as GetReferencesParams,
+                    config
+                );
+
+            // Tag Tools
+            case TOOL_NAMES.GENERATE_ITEM_TAGS:
+                return await executeGenerateItemTags(
+                    validatedArgs as GenerateItemTagsParams,
                     config
                 );
 

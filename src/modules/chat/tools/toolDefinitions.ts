@@ -624,6 +624,25 @@ export const agentTools: ToolDefinition[] = [
                 required: ["paper_id"]
             }
         }
+    },
+
+    // ==================== Tag Management Tools ====================
+    {
+        type: "function",
+        function: {
+            name: TOOL_NAMES.GENERATE_ITEM_TAGS,
+            description: "Generate AI-powered tags for a Zotero item based on its content (notes, PDF, or metadata). Tags are automatically applied to the item.",
+            parameters: {
+                type: "object",
+                properties: {
+                    item_id: {
+                        type: "integer",
+                        description: "The Zotero item ID to generate tags for"
+                    }
+                },
+                required: ["item_id"]
+            }
+        }
     }
 ];
 

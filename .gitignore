@@ -1,5 +1,7 @@
 # dot files
 .DS_Store
+.kilo
+mcp-server/dist
 
 # Node.js
 node_modules
@@ -16,4 +18,5 @@ build
 logs
 doc
 seerai.xpi
+seerai-mcp.cjs
 .agent

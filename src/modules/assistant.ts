@@ -4,6 +4,7 @@ import {
   VisionMessage,
   VisionMessageContentPart,
   ToolCall,
+  ToolDefinition,
 } from "./openai";
 import { config } from "../../package.json";
 import {
@@ -2031,6 +2032,48 @@ export class Assistant {
       },
     );
     bulkActionsContainer.appendChild(saveSelectedBtn);
+
+    // Tag Selected (bulk tag generation)
+    const tagSelectedBtn = createSideBtn(
+      "🏷️",
+      "Generate Tags for Selected",
+      async (e) => {
+        e.stopPropagation();
+        if (!currentTableData || currentTableData.selectedRowIds.size === 0)
+          return;
+        const selectedRows = currentTableData.rows.filter((r) =>
+          currentTableData!.selectedRowIds.has(r.paperId),
+        );
+        const btn = e.currentTarget as HTMLElement;
+        const originalText = btn.innerText;
+        btn.innerText = "⏳";
+        btn.style.cursor = "wait";
+
+        let successCount = 0;
+        let errorCount = 0;
+
+        for (const row of selectedRows) {
+          try {
+            await this.generateTagsForItemSilent(row);
+            successCount++;
+          } catch (err) {
+            errorCount++;
+            Zotero.debug(`[seerai] Error generating tags for ${row.paperId}: ${err}`);
+          }
+        }
+
+        btn.innerText = "✓";
+        btn.style.color = "#4CAF50";
+        btn.title = `Tagged ${successCount} items${errorCount > 0 ? `, ${errorCount} errors` : ""}`;
+        setTimeout(() => {
+          btn.innerText = originalText;
+          btn.style.color = "";
+          btn.title = "Generate Tags for Selected";
+        }, 3000);
+        btn.style.cursor = "pointer";
+      },
+    );
+    bulkActionsContainer.appendChild(tagSelectedBtn);
 
     // 5. (⚡) Generate/Regenerate Selected
     const genSelectedBtn = createSideBtn(
@@ -9770,6 +9813,366 @@ Task: ${columnPrompt}`;
   }
 
   /**
+   * Generate AI tags for a paper item based on its content
+   */
+  private static async generateTagsForItem(
+    row: TableRow,
+    btn: HTMLElement,
+  ): Promise<void> {
+    const originalText = btn.innerText;
+    btn.innerText = "⏳";
+    btn.style.cursor = "wait";
+
+    try {
+      const item = Zotero.Items.get(row.paperId);
+      if (!item) {
+        throw new Error("Item not found");
+      }
+
+      // Get source content (notes or PDF text)
+      let sourceText = "";
+      const noteIds = item.getNotes();
+
+      if (noteIds.length > 0) {
+        // Get content from notes
+        for (const noteId of noteIds) {
+          const noteItem = Zotero.Items.get(noteId);
+          if (noteItem) {
+            const noteHTML = noteItem.getNote();
+            sourceText += this.stripHtml(noteHTML) + "\n\n";
+          }
+        }
+      } else {
+        // Try to get PDF text
+        const attachments = item.getAttachments();
+        for (const attId of attachments) {
+          const att = Zotero.Items.get(attId);
+          if (att && att.attachmentContentType === "application/pdf") {
+            try {
+              const path = await att.getFilePathAsync();
+              if (!path) continue;
+              const text = await Zotero.PDFWorker.getFullText(att.id, 10);
+              const pdfText = text?.text || "";
+              if (pdfText) {
+                sourceText = pdfText.substring(0, 10000); // Limit text length
+                break;
+              }
+            } catch (e) {
+              Zotero.debug(`[seerai] Error extracting PDF text: ${e}`);
+            }
+          }
+        }
+      }
+
+      // If no source text, use metadata only
+      const paperTitle = (item.getField("title") as string) || "Untitled";
+      const abstract = (item.getField("abstractNote") as string) || "";
+      const creators = item.getCreators();
+      const authors = creators
+        .map((c) => `${c.firstName || ""} ${c.lastName || ""}`.trim())
+        .join(", ");
+
+      if (!sourceText.trim()) {
+        sourceText = `Title: ${paperTitle}\nAuthors: ${authors}\nAbstract: ${abstract}`;
+      }
+
+      if (!sourceText.trim()) {
+        btn.innerText = "❌";
+        btn.title = "No content available to generate tags";
+        setTimeout(() => {
+          btn.innerText = originalText;
+          btn.title = "Generate AI tags for this paper";
+        }, 2000);
+        btn.style.cursor = "pointer";
+        return;
+      }
+
+      // Define the tool for structured tag generation
+      const tagGenerationTool: ToolDefinition = {
+        type: "function",
+        function: {
+          name: "generate_tags",
+          description: "Generate structured tags for an academic paper based on its content",
+          parameters: {
+            type: "object",
+            properties: {
+              tags: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    name: {
+                      type: "string",
+                      description: "A concise tag (1-3 words). Must be a topic, methodology, domain, or concept. Never use author names, locations, or partial sentences."
+                    },
+                    category: {
+                      type: "string",
+                      enum: ["topic", "methodology", "domain", "concept", "application"],
+                      description: "The category of this tag"
+                    }
+                  },
+                  required: ["name", "category"]
+                },
+                description: "Array of 3-7 tags for the paper"
+              }
+            },
+            required: ["tags"]
+          }
+        }
+      };
+
+      // Build prompts
+      const systemPrompt = `You are a research librarian tagging academic papers. Generate precise, useful tags.
+
+RULES:
+- Generate 3-7 tags only
+- Each tag must be 1-3 words, properly capitalized
+- Tags must be topics, methodologies, domains, or concepts
+- NEVER include: author names, institution names, cities, countries, or partial sentences
+- NEVER include tags like "the methodology used" or "the clinical problem" - these are not tags
+- Good examples: "Machine Learning", "Cardiovascular Disease", "Meta-Analysis", "Pediatrics"
+- Bad examples: "Smith", "the main approach", "methodology", "San Diego"
+
+You MUST call the generate_tags function with your response.`;
+
+      const userPrompt = `Generate tags for this academic paper:
+
+Title: ${paperTitle}
+Authors: ${authors}
+
+Content excerpt:
+${sourceText.substring(0, 6000)}
+
+Call the generate_tags function with an array of 3-7 high-quality tags.`;
+
+      // Get active model config
+      const activeModel = getActiveModelConfig();
+      if (!activeModel) {
+        throw new Error("No active model configured");
+      }
+
+      const configOverride = {
+        apiURL: activeModel.apiURL,
+        apiKey: activeModel.apiKey,
+        model: activeModel.model,
+      };
+
+      // Generate tags using AI with function calling
+      const messages: OpenAIMessage[] = [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ];
+
+      let generatedTags: string[] = [];
+      let functionCalled = false;
+
+      await openAIService.chatCompletionStream(
+        messages,
+        {
+          onToken: () => { },
+          onComplete: () => { },
+          onError: (err) => {
+            throw err;
+          },
+          onToolCalls: (toolCalls) => {
+            for (const toolCall of toolCalls) {
+              if (toolCall.function.name === "generate_tags") {
+                functionCalled = true;
+                try {
+                  const args = JSON.parse(toolCall.function.arguments);
+                  if (args.tags && Array.isArray(args.tags)) {
+                    generatedTags = args.tags
+                      .map((t: { name: string }) => t.name?.trim())
+                      .filter((t: string) => t && t.length > 0 && t.length < 40);
+                  }
+                } catch (e) {
+                  Zotero.debug(`[seerai] Error parsing tag function arguments: ${e}`);
+                }
+              }
+            }
+          },
+        },
+        configOverride,
+        [tagGenerationTool],
+      );
+
+      if (!functionCalled || generatedTags.length === 0) {
+        throw new Error("No valid tags generated - model did not call the function");
+      }
+
+      // Apply tags to item
+      for (const tag of generatedTags) {
+        item.addTag(tag);
+      }
+      item.addTag("Seerai-Tagged");
+      await item.saveTx();
+
+      // Show success
+      btn.innerText = "✓";
+      btn.style.color = "#4CAF50";
+      btn.title = `Added ${generatedTags.length} tags: ${generatedTags.join(", ")}`;
+      setTimeout(() => {
+        btn.innerText = originalText;
+        btn.style.color = "";
+        btn.title = "Generate AI tags for this paper";
+      }, 3000);
+
+      Zotero.debug(`[seerai] Generated tags for item ${row.paperId}: ${generatedTags.join(", ")}`);
+    } catch (err) {
+      Zotero.debug(`[seerai] Error generating tags: ${err}`);
+      btn.innerText = "❌";
+      btn.style.color = "#c62828";
+      btn.title = `Error: ${err}`;
+      setTimeout(() => {
+        btn.innerText = originalText;
+        btn.style.color = "";
+        btn.title = "Generate AI tags for this paper";
+      }, 2000);
+    }
+  }
+
+  /**
+   * Generate AI tags for a paper item silently (no UI feedback)
+   * Used for bulk operations
+   */
+  private static async generateTagsForItemSilent(row: TableRow): Promise<void> {
+    const item = Zotero.Items.get(row.paperId);
+    if (!item) {
+      throw new Error("Item not found");
+    }
+
+    // Get source content (notes or PDF text)
+    let sourceText = "";
+    const noteIds = item.getNotes();
+
+    if (noteIds.length > 0) {
+      for (const noteId of noteIds) {
+        const noteItem = Zotero.Items.get(noteId);
+        if (noteItem) {
+          const noteHTML = noteItem.getNote();
+          sourceText += this.stripHtml(noteHTML) + "\n\n";
+        }
+      }
+    } else {
+      const attachments = item.getAttachments();
+      for (const attId of attachments) {
+        const att = Zotero.Items.get(attId);
+        if (att && att.attachmentContentType === "application/pdf") {
+          try {
+            const path = await att.getFilePathAsync();
+            if (!path) continue;
+            const text = await Zotero.PDFWorker.getFullText(att.id, 10);
+            const pdfText = text?.text || "";
+            if (pdfText) {
+              sourceText = pdfText.substring(0, 10000);
+              break;
+            }
+          } catch (e) {
+            Zotero.debug(`[seerai] Error extracting PDF text: ${e}`);
+          }
+        }
+      }
+    }
+
+    const paperTitle = (item.getField("title") as string) || "Untitled";
+    const abstract = (item.getField("abstractNote") as string) || "";
+    const creators = item.getCreators();
+    const authors = creators
+      .map((c) => `${c.firstName || ""} ${c.lastName || ""}`.trim())
+      .join(", ");
+
+    if (!sourceText.trim()) {
+      sourceText = `Title: ${paperTitle}\nAuthors: ${authors}\nAbstract: ${abstract}`;
+    }
+
+    if (!sourceText.trim()) {
+      throw new Error("No content available");
+    }
+
+    const tagGenerationTool: ToolDefinition = {
+      type: "function",
+      function: {
+        name: "generate_tags",
+        description: "Generate structured tags for an academic paper",
+        parameters: {
+          type: "object",
+          properties: {
+            tags: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  name: { type: "string" },
+                  category: { type: "string", enum: ["topic", "methodology", "domain", "concept", "application"] }
+                },
+                required: ["name", "category"]
+              }
+            }
+          },
+          required: ["tags"]
+        }
+      }
+    };
+
+    const systemPrompt = `You are a research librarian tagging academic papers. Generate 3-7 precise tags.
+RULES: Tags must be 1-3 words. Never include author names, locations, or partial sentences.
+You MUST call the generate_tags function.`;
+
+    const userPrompt = `Generate tags for: "${paperTitle}" by ${authors}\n\n${sourceText.substring(0, 6000)}`;
+
+    const activeModel = getActiveModelConfig();
+    if (!activeModel) throw new Error("No model configured");
+
+    const messages: OpenAIMessage[] = [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt },
+    ];
+
+    let generatedTags: string[] = [];
+    let functionCalled = false;
+
+    await openAIService.chatCompletionStream(
+      messages,
+      {
+        onToken: () => { },
+        onComplete: () => { },
+        onError: (err) => { throw err; },
+        onToolCalls: (toolCalls) => {
+          for (const tc of toolCalls) {
+            if (tc.function.name === "generate_tags") {
+              functionCalled = true;
+              try {
+                const args = JSON.parse(tc.function.arguments);
+                if (args.tags && Array.isArray(args.tags)) {
+                  generatedTags = args.tags
+                    .map((t: { name: string }) => t.name?.trim())
+                    .filter((t: string) => t && t.length > 0 && t.length < 40);
+                }
+              } catch (e) {
+                Zotero.debug(`[seerai] Error parsing tags: ${e}`);
+              }
+            }
+          }
+        },
+      },
+      { apiURL: activeModel.apiURL, apiKey: activeModel.apiKey, model: activeModel.model },
+      [tagGenerationTool],
+    );
+
+    if (!functionCalled || generatedTags.length === 0) {
+      throw new Error("No valid tags generated");
+    }
+
+    for (const tag of generatedTags) {
+      item.addTag(tag);
+    }
+    item.addTag("Seerai-Tagged");
+    await item.saveTx();
+
+    Zotero.debug(`[seerai] Generated tags for ${row.paperId}: ${generatedTags.join(", ")}`);
+  }
+
+  /**
    * Show cell detail modal for viewing/generating content
    */
   private static showCellDetailModal(
@@ -12416,15 +12819,25 @@ Task: ${columnPrompt}`;
       // Add actions cell with save and remove buttons
       const actionsCell = ztoolkit.UI.createElement(doc, "td", {
         styles: {
-          padding: "4px 8px",
+          padding: "4px",
           borderBottom: "1px solid rgba(128, 128, 128, 0.4)",
           borderRight: "1px solid rgba(128, 128, 128, 0.4)",
-          width: "70px",
+          width: "120px",
+          minWidth: "120px",
           textAlign: "center",
           verticalAlign: "middle",
+        },
+      });
+
+      // Wrapper div for flexbox layout (flex on td doesn't work well)
+      const actionsWrapper = ztoolkit.UI.createElement(doc, "div", {
+        styles: {
           display: "flex",
-          gap: "4px",
+          flexDirection: "row",
+          gap: "2px",
           justifyContent: "center",
+          alignItems: "center",
+          flexWrap: "nowrap",
         },
       });
 
@@ -12478,7 +12891,39 @@ Task: ${columnPrompt}`;
       saveRowBtn.addEventListener("mouseleave", () => {
         saveRowBtn.style.backgroundColor = "";
       });
-      actionsCell.appendChild(saveRowBtn);
+      actionsWrapper.appendChild(saveRowBtn);
+
+      // Tag generation button
+      const tagBtn = ztoolkit.UI.createElement(doc, "button", {
+        properties: { innerText: "🏷️" },
+        attributes: { title: "Generate AI tags for this paper" },
+        styles: {
+          background: "none",
+          border: "none",
+          fontSize: "14px",
+          cursor: "pointer",
+          padding: "4px",
+          borderRadius: "4px",
+          transition: "background-color 0.15s",
+        },
+        listeners: [
+          {
+            type: "click",
+            listener: async (e: Event) => {
+              e.stopPropagation();
+              const btn = e.target as HTMLElement;
+              await this.generateTagsForItem(row, btn);
+            },
+          },
+        ],
+      });
+      tagBtn.addEventListener("mouseenter", () => {
+        tagBtn.style.backgroundColor = "rgba(128,128,128,0.2)";
+      });
+      tagBtn.addEventListener("mouseleave", () => {
+        tagBtn.style.backgroundColor = "";
+      });
+      actionsWrapper.appendChild(tagBtn);
 
       // Bomb button (Delete from Zotero)
       const bombBtn = ztoolkit.UI.createElement(doc, "button", {
@@ -12557,7 +13002,7 @@ Task: ${columnPrompt}`;
           bombBtn.style.backgroundColor = "";
         }
       });
-      actionsCell.appendChild(bombBtn);
+      actionsWrapper.appendChild(bombBtn);
 
       // Remove button
       const removeRowBtn = ztoolkit.UI.createElement(doc, "button", {
@@ -12631,7 +13076,10 @@ Task: ${columnPrompt}`;
       removeRowBtn.addEventListener("mouseleave", () => {
         removeRowBtn.style.backgroundColor = "";
       });
-      actionsCell.appendChild(removeRowBtn);
+      actionsWrapper.appendChild(removeRowBtn);
+
+      // Add wrapper to cell
+      actionsCell.appendChild(actionsWrapper);
       tr.appendChild(actionsCell);
 
       tbody.appendChild(tr);

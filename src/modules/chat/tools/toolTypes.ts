@@ -642,6 +642,22 @@ export interface GetReferencesResult {
     }>;
 }
 
+/**
+ * Parameters for generate_item_tags tool
+ */
+export interface GenerateItemTagsParams {
+    item_id: number;
+}
+
+/**
+ * Result from generate_item_tags
+ */
+export interface GenerateItemTagsResult {
+    item_id: number;
+    tags: string[];
+    success: boolean;
+}
+
 // ==================== Tool Name Constants ====================
 
 export const TOOL_NAMES = {
@@ -670,6 +686,7 @@ export const TOOL_NAMES = {
     READ_WEBPAGE: "read_webpage",
     GET_CITATIONS: "get_citations",
     GET_REFERENCES: "get_references",
+    GENERATE_ITEM_TAGS: "generate_item_tags",
 } as const;
 
 export type ToolName = typeof TOOL_NAMES[keyof typeof TOOL_NAMES];

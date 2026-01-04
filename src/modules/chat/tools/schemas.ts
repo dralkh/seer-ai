@@ -172,6 +172,12 @@ export const RemoveItemFromCollectionParamsSchema = z.object({
         .describe("Collection ID to remove from"),
 });
 
+// ==================== Tag Operations ====================
+
+export const GenerateItemTagsParamsSchema = z.object({
+    item_id: z.number().int().positive().describe("Zotero item ID to generate tags for"),
+});
+
 // ==================== Schema Registry ====================
 
 /**
@@ -198,6 +204,7 @@ const schemaRegistry: Partial<Record<ToolName, z.ZodSchema>> = {
     [TOOL_NAMES.FIND_COLLECTION]: FindCollectionParamsSchema,
     [TOOL_NAMES.CREATE_COLLECTION]: CreateCollectionParamsSchema,
     [TOOL_NAMES.LIST_COLLECTION]: ListCollectionParamsSchema,
+    [TOOL_NAMES.GENERATE_ITEM_TAGS]: GenerateItemTagsParamsSchema,
 };
 
 // ==================== Tool Sensitivity Registry ====================
@@ -241,6 +248,7 @@ const sensitivityRegistry: Record<ToolName, SensitivityLevel> = {
     [TOOL_NAMES.READ_WEBPAGE]: "read",
     [TOOL_NAMES.GET_CITATIONS]: "read",
     [TOOL_NAMES.GET_REFERENCES]: "read",
+    [TOOL_NAMES.GENERATE_ITEM_TAGS]: "write",
 };
 
 /**

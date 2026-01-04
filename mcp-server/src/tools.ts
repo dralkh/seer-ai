@@ -248,6 +248,13 @@ export const TOOL_DEFINITIONS = [
             limit: z.number().default(10).optional().describe("Max results (default 10)")
         }),
     },
+    {
+        name: "generate_item_tags",
+        description: "Generate AI-powered tags for a Zotero item based on its content (notes, PDF, or metadata). Tags are automatically applied to the item.",
+        inputSchema: z.object({
+            item_id: z.number().describe("Zotero item ID to generate tags for")
+        }),
+    },
 ];
 
 export type ToolName = typeof TOOL_DEFINITIONS[number]["name"];
