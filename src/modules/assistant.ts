@@ -12315,12 +12315,60 @@ Task: ${columnPrompt}`;
               const linkUrl = sourceLinkBtn.getAttribute("data-url");
               if (linkUrl) {
                 Zotero.launchURL(linkUrl);
-                // Show Attach and Retry buttons
+                // Show Attach, Retry, and Add Note buttons
                 td.innerHTML = `<span style="font-size: 11px;">
                                     <span class="attach-pdf-btn" data-item-id="${row.paperId}" style="color: var(--highlight-primary); cursor: pointer; margin-right: 8px;">⬇️ Attach</span>
-                                    <span class="search-pdf-btn" style="color: var(--highlight-primary); cursor: pointer;">🔁 Retry</span>
+                                    <span class="search-pdf-btn" style="color: var(--highlight-primary); cursor: pointer; margin-right: 8px;">🔁 Retry</span>
+                                    <span class="add-note-btn" data-item-id="${row.paperId}" style="color: var(--highlight-primary); cursor: pointer;">📝 Add Note</span>
                                 </span>`;
                 td.style.cursor = "pointer";
+              }
+              return;
+            }
+
+            // Handle Add Note click
+            const addNoteBtn = (e.target as Element).closest(".add-note-btn");
+            if (addNoteBtn && item) {
+              try {
+                td.innerHTML = `<span style="color: var(--text-tertiary); font-size: 11px;">⏳ Creating note...</span>`;
+                td.style.cursor = "wait";
+
+                // Create a new note with the paper title as the note title
+                const paperTitle = (item.getField("title") as string) || "Untitled";
+                const note = new Zotero.Item("note");
+                note.libraryID = item.libraryID;
+                note.parentID = item.id;
+                note.setNote(`<h1>${paperTitle}</h1><p>Context note</p>`);
+                await note.saveTx();
+
+                // Open the note immediately
+                const zp = Zotero.getActiveZoteroPane();
+                if (zp) {
+                  await zp.selectItem(note.id);
+                  // Open in note editor pane
+                  const doc = zp.document || zp.ownerDocument;
+                  if (doc) {
+                    const notePane = doc.getElementById("zotero-note-editor");
+                    if (notePane) {
+                      (notePane as any).mode = "edit";
+                      (notePane as any).item = note;
+                    }
+                  }
+                }
+
+                // Update the row's noteIds and sources count
+                row.noteIds = item.getNotes();
+                row.data["sources"] = String(row.noteIds.length);
+
+                // Show "Generate" button now that we have a note
+                td.innerHTML = `<span style="color: var(--highlight-primary); font-size: 11px;">⚡ Generate</span>`;
+                td.style.cursor = "pointer";
+
+                Zotero.debug(`[seerai] Created note for paper: ${paperTitle}`);
+              } catch (err) {
+                td.innerHTML = `<span style="color: #c62828; font-size: 11px;">Error creating note</span>`;
+                td.style.cursor = "pointer";
+                Zotero.debug(`[seerai] Error creating note: ${err}`);
               }
               return;
             }
