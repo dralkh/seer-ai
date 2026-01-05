@@ -658,6 +658,41 @@ export interface GenerateItemTagsResult {
     success: boolean;
 }
 
+/**
+ * Edit operation for edit_note tool
+ */
+export interface EditNoteOperation {
+    type: "replace" | "insert" | "append" | "prepend" | "delete";
+    /** For 'replace'/'delete': text to find */
+    search?: string;
+    /** For 'replace'/'insert'/'append'/'prepend': new content */
+    content?: string;
+    /** For 'insert': position ('start', 'end', or CSS selector) */
+    position?: string;
+    /** For 'replace': replace all occurrences or just first */
+    replace_all?: boolean;
+}
+
+/**
+ * Parameters for edit_note tool
+ * Supports multiple edit operations on a single note
+ */
+export interface EditNoteParams {
+    note_id: number;
+    operations: EditNoteOperation[];
+    /** Convert markdown content to HTML (default: true) */
+    convert_markdown?: boolean;
+}
+
+/**
+ * Result from edit_note
+ */
+export interface EditNoteResult {
+    note_id: number;
+    operations_applied: number;
+    new_content_length: number;
+}
+
 // ==================== Tool Name Constants ====================
 
 export const TOOL_NAMES = {
@@ -687,6 +722,7 @@ export const TOOL_NAMES = {
     GET_CITATIONS: "get_citations",
     GET_REFERENCES: "get_references",
     GENERATE_ITEM_TAGS: "generate_item_tags",
+    EDIT_NOTE: "edit_note",
 } as const;
 
 export type ToolName = typeof TOOL_NAMES[keyof typeof TOOL_NAMES];

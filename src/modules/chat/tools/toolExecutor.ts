@@ -17,6 +17,7 @@ import {
     GetItemMetadataParams,
     ReadItemContentParams,
     CreateNoteParams,
+    EditNoteParams,
     AddToContextParams,
     RemoveFromContextParams,
     ListTablesParams,
@@ -43,7 +44,7 @@ import { safeValidateToolArgs, formatZodError } from "./schemas";
 
 import { executeSearchLibrary, executeSearchExternal, executeImportPaper } from "./searchTool";
 import { executeGetItemMetadata, executeReadItemContent } from "./readTool";
-import { executeCreateNote } from "./noteTool";
+import { executeCreateNote, executeEditNote } from "./noteTool";
 import { executeAddToContext, executeRemoveFromContext, executeListContext } from "./contextTool";
 import {
     executeListTables,
@@ -271,6 +272,13 @@ export async function executeToolCall(
             case TOOL_NAMES.GENERATE_ITEM_TAGS:
                 return await executeGenerateItemTags(
                     validatedArgs as GenerateItemTagsParams,
+                    config
+                );
+
+            // Note Editing
+            case TOOL_NAMES.EDIT_NOTE:
+                return await executeEditNote(
+                    validatedArgs as EditNoteParams,
                     config
                 );
 

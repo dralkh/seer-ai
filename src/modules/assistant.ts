@@ -119,6 +119,7 @@ interface AgentSession {
   toolProcessState?: {
     container: HTMLElement;
     setThinking: () => void;
+    setExecutingTool: (toolName: string) => void;
     setCompleted: (count: number) => void;
     setFailed: (error: string) => void;
   };
@@ -1755,7 +1756,7 @@ export class Assistant {
 
         // ALWAYS create toolProcessState if session is active (even with 0 results)
         // This ensures subsequent tool calls have a valid container
-        const { container, setThinking, setCompleted, setFailed } = createToolProcessUI(doc);
+        const { container, setThinking, setExecutingTool, setCompleted, setFailed } = createToolProcessUI(doc);
         contentDiv.appendChild(container);
 
         // Access internal list container
@@ -1763,7 +1764,7 @@ export class Assistant {
         const targetContainer = (listContainer || container) as HTMLElement;
 
         // Update session references for tool container
-        activeAgentSession.toolProcessState = { container, setThinking, setCompleted, setFailed };
+        activeAgentSession.toolProcessState = { container, setThinking, setExecutingTool, setCompleted, setFailed };
         activeAgentSession.toolContainer = targetContainer;
 
         // Re-hydrate existing tool cards
@@ -19418,6 +19419,9 @@ ${tableRows}  </tbody>
             // The list container is the div inside the details
             session.toolContainer = processUI.container.querySelector(".tool-list-container") as HTMLElement;
           }
+
+          // Update label to show which tool is being executed
+          session.toolProcessState.setExecutingTool(toolCall.function.name);
 
           const toolUI = createToolExecutionUI(doc, toolCall);
 

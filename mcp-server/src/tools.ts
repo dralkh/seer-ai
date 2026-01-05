@@ -40,6 +40,18 @@ const createNoteParams = z.object({
     tags: z.array(z.string()).optional().describe("Tags to add"),
 });
 
+const editNoteParams = z.object({
+    note_id: z.number().describe("ID of the note to edit"),
+    operations: z.array(z.object({
+        type: z.enum(["replace", "insert", "append", "prepend", "delete"]).describe("Operation type"),
+        search: z.string().optional().describe("Text to find (for replace/delete)"),
+        content: z.string().optional().describe("Content to insert/append/replace with"),
+        position: z.string().optional().describe("Position for insert: 'start', 'end', or HTML tag"),
+        replace_all: z.boolean().optional().describe("Replace all occurrences"),
+    })).describe("Edit operations to apply"),
+    convert_markdown: z.boolean().default(true).optional().describe("Convert markdown to HTML"),
+});
+
 const contextItemParams = z.object({
     items: z.array(z.object({
         type: z.enum(["paper", "collection", "tag", "author", "table"]),
@@ -136,6 +148,11 @@ export const TOOL_DEFINITIONS = [
         name: "create_note",
         description: "Create a new note in Zotero, optionally attached to a paper.",
         inputSchema: createNoteParams,
+    },
+    {
+        name: "edit_note",
+        description: "Edit an existing Zotero note. Supports replace, insert, append, prepend, and delete operations.",
+        inputSchema: editNoteParams,
     },
     {
         name: "add_to_context",

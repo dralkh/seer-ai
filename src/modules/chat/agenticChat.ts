@@ -49,6 +49,7 @@ export interface AgenticChatOptions {
 export function createToolProcessUI(doc: Document): {
     container: HTMLElement;
     setThinking: () => void;
+    setExecutingTool: (toolName: string) => void;
     setCompleted: (count: number) => void;
     setFailed: (error: string) => void;
 } {
@@ -164,6 +165,14 @@ export function createToolProcessUI(doc: Document): {
         details.open = false; // Initially hidden while thinking logic runs
     };
 
+    const setExecutingTool = (toolName: string) => {
+        const displayName = toolName.replace(/_/g, " ");
+        label.textContent = `Calling ${displayName}...`;
+        icon.textContent = "🔧";
+        icon.style.filter = "none";
+        icon.style.animation = "pulse 1s infinite";
+    };
+
     const setCompleted = (count: number) => {
         label.textContent = `Completed ${count} step${count !== 1 ? 's' : ''}`;
         icon.textContent = "✓";
@@ -183,7 +192,7 @@ export function createToolProcessUI(doc: Document): {
         details.open = true; // Auto-expand on failure
     };
 
-    return { container: details, setThinking, setCompleted, setFailed };
+    return { container: details, setThinking, setExecutingTool, setCompleted, setFailed };
 }
 
 /**

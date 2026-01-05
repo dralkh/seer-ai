@@ -159,6 +159,59 @@ export const agentTools: ToolDefinition[] = [
         }
     },
 
+    {
+        type: "function",
+        function: {
+            name: TOOL_NAMES.EDIT_NOTE,
+            description: "Edit an existing Zotero note by applying one or more operations. Use this to update, append to, or modify existing notes instead of creating new ones. Supports replace, insert, append, prepend, and delete operations.",
+            parameters: {
+                type: "object",
+                properties: {
+                    note_id: {
+                        type: "integer",
+                        description: "The ID of the existing note to edit"
+                    },
+                    operations: {
+                        type: "array",
+                        description: "List of edit operations to apply in sequence",
+                        items: {
+                            type: "object",
+                            properties: {
+                                type: {
+                                    type: "string",
+                                    enum: ["replace", "insert", "append", "prepend", "delete"],
+                                    description: "Type of edit operation"
+                                },
+                                search: {
+                                    type: "string",
+                                    description: "Text to search for (required for 'replace' and 'delete')"
+                                },
+                                content: {
+                                    type: "string",
+                                    description: "New content (markdown or HTML). Required for replace/insert/append/prepend"
+                                },
+                                position: {
+                                    type: "string",
+                                    description: "For 'insert': where to insert ('start', 'end', or HTML tag like 'h1')"
+                                },
+                                replace_all: {
+                                    type: "boolean",
+                                    description: "For 'replace': replace all occurrences (default: first only)"
+                                }
+                            },
+                            required: ["type"]
+                        }
+                    },
+                    convert_markdown: {
+                        type: "boolean",
+                        description: "Convert markdown content to HTML before applying (default: true)"
+                    }
+                },
+                required: ["note_id", "operations"]
+            }
+        }
+    },
+
     // ==================== Context Management ====================
     {
         type: "function",

@@ -178,6 +178,30 @@ export const GenerateItemTagsParamsSchema = z.object({
     item_id: z.number().int().positive().describe("Zotero item ID to generate tags for"),
 });
 
+// ==================== Note Editing ====================
+
+const EditNoteOperationSchema = z.object({
+    type: z.enum(["replace", "insert", "append", "prepend", "delete"])
+        .describe("Type of edit operation"),
+    search: z.string().optional()
+        .describe("Text to search for (required for 'replace' and 'delete')"),
+    content: z.string().optional()
+        .describe("New content to insert/append/prepend or replacement text"),
+    position: z.string().optional()
+        .describe("Position for 'insert': 'start', 'end', or CSS selector"),
+    replace_all: z.boolean().default(false).optional()
+        .describe("For 'replace': replace all occurrences (default: first only)"),
+});
+
+export const EditNoteParamsSchema = z.object({
+    note_id: z.number().int().positive()
+        .describe("ID of the existing note to edit"),
+    operations: z.array(EditNoteOperationSchema).min(1)
+        .describe("List of edit operations to apply in order"),
+    convert_markdown: z.boolean().default(true).optional()
+        .describe("Convert markdown content to HTML (default: true)"),
+});
+
 // ==================== Schema Registry ====================
 
 /**
@@ -205,6 +229,7 @@ const schemaRegistry: Partial<Record<ToolName, z.ZodSchema>> = {
     [TOOL_NAMES.CREATE_COLLECTION]: CreateCollectionParamsSchema,
     [TOOL_NAMES.LIST_COLLECTION]: ListCollectionParamsSchema,
     [TOOL_NAMES.GENERATE_ITEM_TAGS]: GenerateItemTagsParamsSchema,
+    [TOOL_NAMES.EDIT_NOTE]: EditNoteParamsSchema,
 };
 
 // ==================== Tool Sensitivity Registry ====================
@@ -249,6 +274,7 @@ const sensitivityRegistry: Record<ToolName, SensitivityLevel> = {
     [TOOL_NAMES.GET_CITATIONS]: "read",
     [TOOL_NAMES.GET_REFERENCES]: "read",
     [TOOL_NAMES.GENERATE_ITEM_TAGS]: "write",
+    [TOOL_NAMES.EDIT_NOTE]: "write",
 };
 
 /**
