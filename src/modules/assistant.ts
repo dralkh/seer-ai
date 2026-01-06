@@ -33,6 +33,7 @@ import {
   countImageAttachments,
 } from "./chat/imageUtils";
 import { getTableStore } from "./chat/tableStore";
+import { advancedSearch } from "./searchUtils";
 import {
   TableConfig,
   TableColumn,
@@ -13598,10 +13599,19 @@ You MUST call the generate_tags function.`;
         return tableData;
       }
 
-      // Get filter settings
-      const filterQuery = currentTableConfig?.filterQuery?.toLowerCase() || "";
+      // Get filter settings - strip any quote characters that might have been added
+      const rawFilterQuery = currentTableConfig?.filterQuery || "";
+      const filterQuery = rawFilterQuery
+        .toLowerCase()
+        .trim()
+        .replace(/^["']+|["']+$/g, '')  // Remove leading/trailing quotes
+        .replace(/[""'']/g, '');         // Remove any curly/smart quotes
 
-      const allFilteredRows: TableRow[] = [];
+      // STEP 1: Build ALL rows first (without filtering)
+      const allRows: TableRow[] = [];
+
+      // Prepare generated data map with string key fallback
+      const generatedDataMap = currentTableConfig?.generatedData || {};
 
       for (const paperId of addedIds) {
         const item = Zotero.Items.get(paperId);
@@ -13616,46 +13626,82 @@ You MUST call the generate_tags function.`;
             .join(", ") || "Unknown";
         const year = (item.getField("year") as string) || "";
 
-        // Load any persisted generated data for this paper
+        // Load persisted generated data - try both number and string keys
+        // (JSON serialization converts number keys to strings)
         const persistedData =
-          currentTableConfig?.generatedData?.[item.id] || {};
-
-        // Apply search filter (check title, author, year, AND all other columns)
-        if (filterQuery) {
-          const searchTargets = [
-            paperTitle,
-            authorNames,
-            year,
-            // Add all other column data values
-            ...Object.values(persistedData).map((v) => String(v || "")),
-          ];
-
-          const matches = searchTargets.some((target) =>
-            target.toLowerCase().includes(filterQuery),
-          );
-
-          if (!matches) continue;
-        }
+          generatedDataMap[item.id] ||
+          (generatedDataMap as Record<string, { [columnId: string]: string }>)[String(item.id)] ||
+          {};
 
         // Get note count for sources column
         const noteIDs = item.getNotes();
 
-        allFilteredRows.push({
+        // Build the complete row with all data
+        const rowData: Record<string, string> = {
+          title: paperTitle,
+          author: authorNames,
+          year: year,
+          sources: String(noteIDs.length),
+          // Merge ALL persisted computed columns
+          ...persistedData,
+        };
+
+        allRows.push({
           paperId: item.id,
           paperTitle: paperTitle,
           noteIds: noteIDs,
-          noteTitle: "", // Not used in manual add mode
-          data: {
-            title: paperTitle,
-            author: authorNames,
-            year: year,
-            sources: String(noteIDs.length),
-            analysisMethodology: persistedData["analysisMethodology"] || "",
-            // Merge any other persisted computed columns
-            ...persistedData,
-          },
+          noteTitle: "",
+          data: rowData,
         });
       }
+
+      // STEP 2: Apply search filter on the COMPLETE row data
+      // Using simple, reliable inline implementation
+      let filteredRows: TableRow[];
+
+      if (filterQuery) {
+        Zotero.debug(`[seerai:search] Starting search for: "${filterQuery}" across ${allRows.length} rows`);
+
+        filteredRows = allRows.filter((row) => {
+          // Concatenate ALL data values into one searchable string
+          const allValues = Object.values(row.data)
+            .map((v) => String(v || ""))
+            .join(" ");
+
+          // Strip <think>...</think> tags and their content before searching
+          // These contain AI reasoning that often has words like "no", "yes" causing false matches
+          const cleanedText = allValues.replace(/<think>[\s\S]*?<\/think>/gi, "");
+
+          // Create one big searchable string (lowercase for case-insensitive)
+          const searchableText = cleanedText.toLowerCase();
+
+          // Split query into individual terms (AND logic - all must match)
+          const queryTerms = filterQuery.split(/\s+/).filter((t) => t.length > 0);
+
+          // Check if EVERY term exists as a WHOLE WORD (using word boundary regex)
+          const allTermsMatch = queryTerms.every((term) => {
+            // Escape special regex characters in the search term
+            const escapedTerm = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            // Use word boundary \b to match whole words only
+            // This ensures "no" matches "NO" but not "coronary" or "immunoglobulin"
+            const wordBoundaryRegex = new RegExp(`\\b${escapedTerm}\\b`, "i");
+            return wordBoundaryRegex.test(searchableText);
+          });
+
+          // Debug: Log first 5 rows to see what's being searched
+          if (allRows.indexOf(row) < 5) {
+            Zotero.debug(`[seerai:search] Row ${row.paperId}: Keys=[${Object.keys(row.data).join(',')}] | Match=${allTermsMatch} | SearchText="${searchableText.substring(0, 100)}..."`);
+          }
+
+          return allTermsMatch;
+        });
+
+        Zotero.debug(`[seerai:search] Result: ${filteredRows.length}/${allRows.length} rows match "${filterQuery}"`);
+      } else {
+        filteredRows = allRows;
+      }
+
+      const allFilteredRows = filteredRows;
 
       // Sort
       const sortBy = currentTableConfig?.sortBy || "title";
