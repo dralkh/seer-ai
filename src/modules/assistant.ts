@@ -1935,9 +1935,58 @@ export class Assistant {
         gap: "10px",
         minHeight: "200px",
         overflow: "auto",
+        userSelect: "text",
+        cursor: "text",
       },
       properties: { id: "assistant-messages-area" },
     }) as HTMLElement;
+
+    // Add copy event listener for smart markdown copy
+    messagesArea.addEventListener("copy", (e: Event) => {
+      Zotero.debug("[seerai] Copy event triggered in messages area");
+      const clipboardEvent = e as ClipboardEvent;
+      const selection = doc.getSelection();
+      if (!selection || selection.rangeCount === 0) {
+        Zotero.debug("[seerai] No selection found during copy");
+        return;
+      }
+
+      const selectedText = selection.toString();
+      Zotero.debug(`[seerai] Selected text length: ${selectedText.length}`);
+
+      if (!selectedText.trim()) return;
+
+      try {
+        // Get the selected HTML content
+        const range = selection.getRangeAt(0);
+        const fragment = range.cloneContents();
+        // Use HTML namespace to ensure proper element creation
+        const tempDiv = doc.createElementNS ? doc.createElementNS("http://www.w3.org/1999/xhtml", "div") : doc.createElement("div");
+        tempDiv.appendChild(fragment);
+
+        Zotero.debug(`[seerai] Captured HTML fragment length: ${(tempDiv.innerHTML as string).length}`);
+
+        // Convert HTML to markdown-like text
+        const markdownText = this.htmlToMarkdown(tempDiv as HTMLElement);
+        Zotero.debug(`[seerai] Converted markdown length: ${markdownText.length}`);
+
+        // If markdown conversion produced different content, use it
+        if (markdownText && markdownText.trim() !== selectedText.trim()) {
+          Zotero.debug("[seerai] Using markdown for copy");
+          e.preventDefault();
+          if (clipboardEvent.clipboardData) {
+            clipboardEvent.clipboardData.setData("text/plain", markdownText);
+            // Also set HTML for rich paste targets
+            // Cast to string to fix TS error
+            clipboardEvent.clipboardData.setData("text/html", tempDiv.innerHTML as string);
+          }
+        } else {
+          Zotero.debug("[seerai] Using default copy (markdown identical or empty)");
+        }
+      } catch (err) {
+        Zotero.debug(`[seerai] Error in smart copy: ${err}`);
+      }
+    });
 
     // Restore previous messages
     try {
@@ -2399,6 +2448,32 @@ export class Assistant {
       },
     );
     bulkActionsContainer.appendChild(genSelectedBtn);
+
+    // 5b. (🔄) Regenerate Previously Generated
+    const regenSelectedBtn = createSideBtn(
+      "🔄",
+      "Regenerate Previously Generated",
+      (e) => {
+        e.stopPropagation();
+        if (!currentTableData || currentTableData.selectedRowIds.size === 0)
+          return;
+        this.regenerateSelectedColumns(doc, item);
+      },
+    );
+    bulkActionsContainer.appendChild(regenSelectedBtn);
+
+    // 5c. (📁) Add to Folder
+    const addToFolderBtn = createSideBtn(
+      "📁",
+      "Add Selected to Folder",
+      async (e) => {
+        e.stopPropagation();
+        if (!currentTableData || currentTableData.selectedRowIds.size === 0)
+          return;
+        await this.showAddToFolderPopup(doc, e.currentTarget as HTMLElement);
+      },
+    );
+    bulkActionsContainer.appendChild(addToFolderBtn);
 
     // 6. (🗑️) Trash (Remove from Table)
     const trashSelectedBtn = createSideBtn(
@@ -5089,6 +5164,114 @@ Format in clean Markdown with clear headings. Be analytical and substantive, not
     // Follow-up answer areas
     const followUpAnswers = doc.querySelectorAll(".ai-answer");
     followUpAnswers.forEach((ans: Element) => this.applyCitationStyle(ans as HTMLElement));
+  }
+
+  /**
+   * Convert HTML content to markdown format for copy-paste
+   */
+  private static htmlToMarkdown(element: HTMLElement): string {
+    const processNode = (node: Node): string => {
+      // Use numeric constants since Node global might not be available
+      // Node.TEXT_NODE = 3, Node.ELEMENT_NODE = 1
+      if (node.nodeType === 3) {
+        return node.textContent || "";
+      }
+
+      if (node.nodeType !== 1) {
+        return "";
+      }
+
+      const el = node as HTMLElement;
+      const tagName = el.tagName.toLowerCase();
+      const children = Array.from(el.childNodes).filter((n): n is Node => n !== null).map(processNode).join("");
+
+      switch (tagName) {
+        case "strong":
+        case "b":
+          return `**${children}**`;
+        case "em":
+        case "i":
+          return `*${children}*`;
+        case "code":
+          return `\`${children}\``;
+        case "pre":
+          return `\`\`\`\n${children}\n\`\`\``;
+        case "h1":
+          return `# ${children}\n`;
+        case "h2":
+          return `## ${children}\n`;
+        case "h3":
+          return `### ${children}\n`;
+        case "h4":
+          return `#### ${children}\n`;
+        case "h5":
+          return `##### ${children}\n`;
+        case "h6":
+          return `###### ${children}\n`;
+        case "p":
+          return `${children}\n\n`;
+        case "br":
+          return "\n";
+        case "hr":
+          return "\n---\n";
+        case "a":
+          const href = el.getAttribute("href") || "";
+          return `[${children}](${href})`;
+        case "ul":
+          return `${children}\n`;
+        case "ol":
+          return `${children}\n`;
+        case "li":
+          // Check if parent is ol or ul
+          const parent = el.parentElement;
+          if (parent?.tagName.toLowerCase() === "ol") {
+            const index = Array.from(parent.children).indexOf(el) + 1;
+            return `${index}. ${children}\n`;
+          }
+          return `- ${children}\n`;
+        case "blockquote":
+          return children.split("\n").map(line => `> ${line}`).join("\n") + "\n";
+        case "table":
+          return this.tableToMarkdown(el);
+        case "div":
+        case "span":
+          return children;
+        default:
+          return children;
+      }
+    };
+
+    return processNode(element).trim();
+  }
+
+  /**
+   * Convert HTML table to markdown table format
+   */
+  private static tableToMarkdown(table: HTMLElement): string {
+    const rows = table.querySelectorAll("tr");
+    if (rows.length === 0) return "";
+
+    const result: string[] = [];
+    let headerProcessed = false;
+
+    rows.forEach((row: Element, rowIndex: number) => {
+      const cells = row.querySelectorAll("th, td");
+      const cellContents: string[] = [];
+      cells.forEach((cell: Element) => {
+        cellContents.push((cell.textContent || "").trim().replace(/\|/g, "\\|"));
+      });
+
+      result.push(`| ${cellContents.join(" | ")} |`);
+
+      // Add separator after header row
+      if (!headerProcessed && (row.querySelector("th") || rowIndex === 0)) {
+        const separator = cellContents.map(() => "---").join(" | ");
+        result.push(`| ${separator} |`);
+        headerProcessed = true;
+      }
+    });
+
+    return result.join("\n") + "\n";
   }
 
   /**
@@ -8325,6 +8508,254 @@ Format in clean Markdown with clear headings. Be analytical and substantive, not
   }
 
   /**
+   * Show a popup to select a folder to add selected items to
+   */
+  private static async showAddToFolderPopup(
+    doc: Document,
+    anchorBtn: HTMLElement,
+  ): Promise<void> {
+    // Remove existing popup if any
+    const existing = doc.getElementById("add-to-folder-popup");
+    if (existing) {
+      existing.remove();
+      return;
+    }
+
+    if (!currentTableData || currentTableData.selectedRowIds.size === 0) return;
+
+    // Create popup
+    const popup = ztoolkit.UI.createElement(doc, "div", {
+      properties: { id: "add-to-folder-popup" },
+      styles: {
+        position: "fixed",
+        backgroundColor: "var(--background-primary)",
+        border: "1px solid var(--border-primary)",
+        borderRadius: "8px",
+        boxShadow: "0 4px 16px rgba(0,0,0,0.15)",
+        padding: "12px",
+        zIndex: "10000",
+        minWidth: "200px",
+        maxHeight: "300px",
+        overflow: "auto",
+      },
+    });
+
+    // Position popup near button
+    const rect = anchorBtn.getBoundingClientRect();
+    popup.style.top = `${rect.top}px`;
+    popup.style.left = `${rect.left - 210}px`;
+
+    // Header
+    const header = ztoolkit.UI.createElement(doc, "div", {
+      styles: {
+        fontSize: "12px",
+        fontWeight: "600",
+        marginBottom: "8px",
+        color: "var(--text-primary)",
+      },
+    });
+    header.textContent = `Add ${currentTableData.selectedRowIds.size} item(s) to:`;
+    popup.appendChild(header);
+
+    // Collection select dropdown
+    const select = ztoolkit.UI.createElement(doc, "select", {
+      styles: {
+        width: "100%",
+        padding: "8px",
+        borderRadius: "4px",
+        border: "1px solid var(--border-primary)",
+        backgroundColor: "var(--background-primary)",
+        color: "var(--text-primary)",
+        fontSize: "12px",
+        marginBottom: "8px",
+      },
+    }) as HTMLSelectElement;
+
+    // Populate with collections
+    try {
+      const libraries = Zotero.Libraries.getAll();
+      for (const library of libraries) {
+        // Get collections for this library
+        const collections = Zotero.Collections.getByLibrary(
+          library.libraryID,
+          true,
+        );
+
+        // Build hierarchy
+        const colMap = new Map<number, Zotero.Collection>();
+        const childrenMap = new Map<number, Zotero.Collection[]>();
+        const rootCols: Zotero.Collection[] = [];
+
+        collections.forEach((col) => {
+          colMap.set(col.id, col);
+          if (!childrenMap.has(col.id)) {
+            childrenMap.set(col.id, []);
+          }
+        });
+
+        collections.forEach((col) => {
+          if (col.parentID && colMap.has(col.parentID)) {
+            if (!childrenMap.has(col.parentID)) {
+              childrenMap.set(col.parentID, []);
+            }
+            childrenMap.get(col.parentID)?.push(col);
+          } else {
+            rootCols.push(col);
+          }
+        });
+
+        const sortCols = (a: Zotero.Collection, b: Zotero.Collection) =>
+          a.name.localeCompare(b.name);
+        rootCols.sort(sortCols);
+        childrenMap.forEach((children) => children.sort(sortCols));
+
+        // Library header (as disabled option)
+        const libHeader = doc.createElement("option");
+        libHeader.value = "";
+        libHeader.textContent = `📚 ${library.name}`;
+        libHeader.disabled = true;
+        libHeader.style.fontWeight = "bold";
+        select.appendChild(libHeader);
+
+        const renderCollections = (
+          cols: Zotero.Collection[],
+          level: number,
+        ) => {
+          for (const col of cols) {
+            const colOption = doc.createElement("option");
+            colOption.value = `${col.id}`;
+            const prefix = "  ".repeat(level + 1);
+            colOption.textContent = `${prefix}📁 ${col.name}`;
+            select.appendChild(colOption);
+
+            const children = childrenMap.get(col.id);
+            if (children && children.length > 0) {
+              renderCollections(children, level + 1);
+            }
+          }
+        };
+
+        renderCollections(rootCols, 0);
+      }
+    } catch (e) {
+      Zotero.debug(`[seerai] Error populating folder select: ${e}`);
+    }
+
+    popup.appendChild(select);
+
+    // Buttons row
+    const btnRow = ztoolkit.UI.createElement(doc, "div", {
+      styles: {
+        display: "flex",
+        gap: "8px",
+        justifyContent: "flex-end",
+      },
+    });
+
+    // Cancel button
+    const cancelBtn = ztoolkit.UI.createElement(doc, "button", {
+      properties: { innerText: "Cancel" },
+      styles: {
+        padding: "6px 12px",
+        borderRadius: "4px",
+        border: "1px solid var(--border-primary)",
+        backgroundColor: "var(--background-secondary)",
+        color: "var(--text-primary)",
+        cursor: "pointer",
+        fontSize: "12px",
+      },
+      listeners: [{ type: "click", listener: () => popup.remove() }],
+    });
+    btnRow.appendChild(cancelBtn);
+
+    // Add button
+    const addBtn = ztoolkit.UI.createElement(doc, "button", {
+      properties: { innerText: "Add" },
+      styles: {
+        padding: "6px 12px",
+        borderRadius: "4px",
+        border: "none",
+        backgroundColor: "var(--highlight-primary)",
+        color: "var(--highlight-text)",
+        cursor: "pointer",
+        fontSize: "12px",
+        fontWeight: "500",
+      },
+      listeners: [
+        {
+          type: "click",
+          listener: async () => {
+            const collectionId = parseInt(select.value, 10);
+            if (!collectionId) {
+              popup.remove();
+              return;
+            }
+
+            const selectedIds = Array.from(currentTableData!.selectedRowIds);
+            let added = 0;
+
+            for (const itemId of selectedIds) {
+              try {
+                const zItem = Zotero.Items.get(itemId);
+                if (zItem && zItem.isRegularItem()) {
+                  zItem.addToCollection(collectionId);
+                  await zItem.saveTx();
+                  added++;
+                }
+              } catch (err) {
+                Zotero.debug(`[seerai] Error adding item ${itemId} to collection: ${err}`);
+              }
+            }
+
+            // Update button to show success
+            addBtn.innerText = `✓ Added ${added}`;
+            addBtn.style.backgroundColor = "#4CAF50";
+            setTimeout(() => popup.remove(), 1000);
+          },
+        },
+      ],
+    });
+    btnRow.appendChild(addBtn);
+    popup.appendChild(btnRow);
+
+    // Append popup to document
+    if (doc.body) {
+      doc.body.appendChild(popup);
+    } else {
+      doc.documentElement?.appendChild(popup);
+    }
+    Zotero.debug(`[seerai] Add to folder popup appended`);
+
+    // Track if select is being interacted with
+    let selectActive = false;
+    select.addEventListener("mousedown", () => {
+      selectActive = true;
+    });
+    select.addEventListener("change", () => {
+      selectActive = false;
+    });
+    select.addEventListener("blur", () => {
+      selectActive = false;
+    });
+
+    // Close on click outside - but not when select dropdown is active
+    const closeHandler = (e: Event) => {
+      // If select dropdown is being used, don't close
+      if (selectActive) {
+        return;
+      }
+      const target = e.target as Node;
+      // Don't close if clicking inside popup
+      if (popup.contains(target)) {
+        return;
+      }
+      popup.remove();
+      doc.removeEventListener("mousedown", closeHandler);
+    };
+    setTimeout(() => doc.addEventListener("mousedown", closeHandler), 100);
+  }
+
+  /**
    * Show paper picker as a beautiful inline dropdown panel
    */
   private static async showTablePaperPicker(
@@ -8849,6 +9280,11 @@ Format in clean Markdown with clear headings. Be analytical and substantive, not
                 count++;
               }
             }
+            // Save the config to persist changes
+            if (count > 0 && currentTableConfig) {
+              const tableStore = getTableStore();
+              await tableStore.saveConfig(currentTableConfig);
+            }
             listContainer.innerHTML = "";
             allFilteredItems = [];
             displayedCount = 0;
@@ -9180,6 +9616,197 @@ Format in clean Markdown with clear headings. Be analytical and substantive, not
 
     Zotero.debug(
       `[seerai] Generation complete: ${generated} generated, ${failed} failed`,
+    );
+  }
+
+  /**
+   * Regenerate columns for selected items that already have generated content.
+   * Unlike generateAllEmptyColumns, this specifically targets cells with existing content.
+   */
+  private static async regenerateSelectedColumns(
+    doc: Document,
+    item: Zotero.Item,
+  ): Promise<void> {
+    Zotero.debug("[seerai] Regenerate Selected clicked");
+
+    if (!currentTableConfig) return;
+    if (!currentTableData || currentTableData.selectedRowIds.size === 0) return;
+
+    // Get visible columns and computed columns
+    const columns = currentTableConfig.columns || defaultColumns;
+    const visibleCols = columns.filter((col) => col.visible);
+    const computedCols = visibleCols.filter((col) => col.type === "computed");
+
+    if (computedCols.length === 0) {
+      Zotero.debug("[seerai] No computed columns visible");
+      return;
+    }
+
+    // Find all visible rows
+    const table = doc.querySelector(".papers-table");
+    if (!table) return;
+
+    const rows = table.querySelectorAll("tr[data-paper-id]");
+    if (rows.length === 0) return;
+
+    // Get max concurrent from settings
+    const maxConcurrent =
+      (Zotero.Prefs.get(
+        `${addon.data.config.prefsPrefix}.aiMaxConcurrent`,
+      ) as number) || 5;
+
+    // Build tasks by scanning DOM
+    interface RegenerationTask {
+      paperId: number;
+      col: TableColumn;
+      td: HTMLElement;
+      item: Zotero.Item;
+    }
+    const tasks: RegenerationTask[] = [];
+
+    for (let i = 0; i < rows.length; i++) {
+      const tr = rows[i] as HTMLElement;
+      const paperId = parseInt(tr.getAttribute("data-paper-id") || "0", 10);
+      if (!paperId) continue;
+
+      // Only process selected rows
+      if (!currentTableData.selectedRowIds.has(paperId)) {
+        continue;
+      }
+
+      // Get paper item
+      const paperItem = Zotero.Items.get(paperId);
+      if (!paperItem || !paperItem.isRegularItem()) continue;
+
+      const existingRowData = currentTableData?.rows.find(
+        (r) => r.paperId === paperId,
+      );
+
+      // Check each computed column
+      for (const col of computedCols) {
+        // Check if cell has existing content - ONLY regenerate cells with content
+        const val = existingRowData?.data[col.id];
+        if (!val || val.toString().trim().length === 0) {
+          // Skip empty cells - we only want to regenerate existing content
+          continue;
+        }
+
+        // Calculate correct DOM index
+        const coreColumnIds = ["title", "author", "year", "sources"];
+        const visibleOtherColumns = visibleCols.filter(
+          (c) => !coreColumnIds.includes(c.id),
+        );
+        const otherColIndex = visibleOtherColumns.findIndex(
+          (c) => c.id === col.id,
+        );
+
+        if (otherColIndex === -1) continue;
+
+        const domIndex = otherColIndex + 1;
+        if (domIndex >= tr.children.length) continue;
+        const td = tr.children[domIndex] as HTMLElement;
+        if (!td) continue;
+
+        tasks.push({
+          paperId,
+          col,
+          td,
+          item: paperItem,
+        });
+
+        // Immediate visual feedback
+        td.innerHTML = `<span style="color: var(--text-tertiary); font-size: 11px;">🔄 Regenerating...</span>`;
+        td.style.cursor = "wait";
+      }
+    }
+
+    if (tasks.length === 0) {
+      Zotero.debug("[seerai] No cells with existing content to regenerate");
+      return;
+    }
+
+    Zotero.debug(`[seerai] ${tasks.length} cells to regenerate`);
+
+    let completed = 0;
+    let regenerated = 0;
+    let failed = 0;
+
+    // Process a single task
+    const processTask = async (task: RegenerationTask): Promise<void> => {
+      try {
+        const noteIds = task.item.getNotes();
+        let content = "";
+
+        if (noteIds.length > 0) {
+          content = await this.generateColumnContent(
+            task.item,
+            task.col,
+            noteIds,
+          );
+        } else {
+          try {
+            content = await this.generateFromPDF(task.item, task.col);
+          } catch (err) {
+            Zotero.debug(
+              `[seerai] Failed to regenerate from PDF for item ${task.paperId}: ${err}`,
+            );
+          }
+        }
+
+        if (content) {
+          task.td.innerHTML = parseMarkdown(content);
+          task.td.style.cursor = "pointer";
+          task.td.style.backgroundColor = "";
+
+          const row = currentTableData?.rows.find(
+            (r) => r.paperId === task.paperId,
+          );
+          if (row) {
+            row.data[task.col.id] = content;
+          }
+
+          if (currentTableConfig) {
+            if (!currentTableConfig.generatedData) {
+              currentTableConfig.generatedData = {};
+            }
+            if (!currentTableConfig.generatedData[task.paperId]) {
+              currentTableConfig.generatedData[task.paperId] = {};
+            }
+            currentTableConfig.generatedData[task.paperId][task.col.id] =
+              content;
+          }
+
+          regenerated++;
+        } else {
+          task.td.innerHTML = `<span style="color: var(--text-tertiary); font-size: 11px; font-style: italic;">Failed to regenerate</span>`;
+          task.td.style.cursor = "default";
+        }
+      } catch (e) {
+        Zotero.debug(
+          `[seerai] Error regenerating for ${task.paperId}/${task.col.id}: ${e}`,
+        );
+        task.td.innerHTML = `<span style="color: #c62828; font-size: 11px;">Error</span>`;
+        task.td.title = String(e);
+        failed++;
+      } finally {
+        completed++;
+      }
+    };
+
+    // Process tasks in parallel batches
+    for (let i = 0; i < tasks.length; i += maxConcurrent) {
+      const batch = tasks.slice(i, i + maxConcurrent);
+      await Promise.all(batch.map(processTask));
+    }
+
+    // Save at the end
+    const tableStore = getTableStore();
+    if (currentTableConfig) {
+      await tableStore.saveConfig(currentTableConfig);
+    }
+
+    Zotero.debug(
+      `[seerai] Regeneration complete: ${regenerated} regenerated, ${failed} failed`,
     );
   }
 
@@ -20739,6 +21366,8 @@ ${webContext ? " When using web search results, cite the source URL." : ""}`;
         backgroundColor: isUser ? "var(--accent-blue, #1976d2)" : "var(--background-secondary, #f5f5f5)",
         color: isUser ? "#ffffff" : "var(--text-primary, #212121)",
         border: isUser ? "none" : "1px solid var(--border-primary, #e0e0e0)",
+        userSelect: "text",
+        cursor: "text",
       },
     });
 
