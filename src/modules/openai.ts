@@ -131,6 +131,62 @@ export class OpenAIService {
         this.currentController = null;
     }
 
+    private isReasoningModel(model: string): boolean {
+        const m = model.toLowerCase();
+        // Catch o1, o3, o4, gpt-5, reasoner (OpenRouter/deepseek), r1 (deepseek)
+        return m.startsWith('o1') ||
+            m.startsWith('o3') ||
+            m.startsWith('o4') ||
+            m.startsWith('gpt-5') ||
+            m.includes('/o1') ||
+            m.includes('/o3') ||
+            m.includes('/o4') ||
+            m.includes('/gpt-5') ||
+            m.includes('reasoner') ||
+            m.includes('r1');
+    }
+
+    /**
+     * Prepare request body by handling reasoning model specifics and filtering unsupported parameters.
+     */
+    private prepareRequestBody(model: string, messages: AnyOpenAIMessage[], options?: { stream?: boolean; temperature?: number; max_tokens?: number }): Record<string, unknown> {
+        const isReasoning = this.isReasoningModel(model);
+
+        const body: Record<string, unknown> = {
+            model,
+            messages,
+        };
+
+        if (options?.stream) {
+            body.stream = true;
+        }
+
+        // Handle parameters based on model type
+        if (isReasoning) {
+            // Reasoning models (o1, o3, reasoner) typically:
+            // 1. Don't support 'temperature', 'top_p', etc. (or require them to be default)
+            // 2. Use 'max_completion_tokens' instead of 'max_tokens'
+
+            if (options?.max_tokens !== undefined) {
+                body.max_completion_tokens = options.max_tokens;
+            }
+
+            // Explicitly exclude unsupported parameters or ensure they aren't added
+            // (We just don't add them here)
+            Zotero.debug(`[seerai] Preparing request for reasoning model: ${model}. Stripping temperature/top_p.`);
+        } else {
+            // Standard models
+            if (options?.temperature !== undefined) {
+                body.temperature = options.temperature;
+            }
+            if (options?.max_tokens !== undefined) {
+                body.max_tokens = options.max_tokens;
+            }
+        }
+
+        return body;
+    }
+
     /**
      * Standard chat completion (non-streaming)
      */
@@ -175,16 +231,15 @@ export class OpenAIService {
         }
 
         try {
+            const requestBody = this.prepareRequestBody(model, messages);
+
             const response = await fetch(endpoint, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
                     "Authorization": `Bearer ${apiKey}`,
                 },
-                body: JSON.stringify({
-                    model,
-                    messages,
-                }),
+                body: JSON.stringify(requestBody),
                 ...(signal ? { signal } : {}),
             });
 
@@ -271,21 +326,15 @@ export class OpenAIService {
         }> = new Map();
 
         try {
-            // Build request body
-            const requestBody: Record<string, unknown> = {
-                model,
-                messages,
+            // Build request body using centralized helper
+            const requestBody = this.prepareRequestBody(model, messages, {
                 stream: true,
-            };
+                temperature: configOverride?.temperature,
+                max_tokens: configOverride?.max_tokens
+            });
 
-            if (configOverride?.temperature !== undefined) {
-                requestBody.temperature = configOverride.temperature;
-            }
-            if (configOverride?.max_tokens !== undefined) {
-                requestBody.max_tokens = configOverride.max_tokens;
-            }
-
-            // Add tools if provided
+            // Add tools if provided (reasoning models from OpenAI currently have limited tool support, 
+            // but we follow the standard pattern here unless explicitly restricted)
             if (tools && tools.length > 0) {
                 requestBody.tools = tools;
                 // Allow the model to choose whether to call tools
