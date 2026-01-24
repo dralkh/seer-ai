@@ -13,7 +13,7 @@
     <img src="https://img.shields.io/badge/License-MIT-blue.svg" />
   </a>
   <a href="https://github.com/dralkh/seerai/releases">
-    <img src="https://img.shields.io/badge/Version-1.5.4-blue" />
+    <img src="https://img.shields.io/badge/Version-1.5.5-blue" />
   </a>
 </p>
 
