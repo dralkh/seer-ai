@@ -1541,6 +1541,22 @@ export class Assistant {
     this.lastRenderedTab = activeTab;
     this.lastRenderedContainer = container;
 
+    // Check if we are in a detached window or the Zotero pane
+    // Using a more robust window-level check
+    const isDetachedWindow = !!(container.ownerDocument?.getElementById("seerai-detached-window"));
+
+    // Force height and overflow on root container
+    // In Pane: allow visible overflow for Natural Scroll
+    // In Detached: force 100% height and hidden overflow to maintain window bounds
+    if (activeTab === "table" && !isDetachedWindow) {
+      container.style.height = "auto";
+      container.style.minHeight = "100%";
+      container.style.overflow = "visible";
+    } else {
+      container.style.height = "100%";
+      container.style.overflow = "hidden";
+    }
+
     container.innerHTML = "";
 
     // Debug visual
@@ -1632,8 +1648,8 @@ export class Assistant {
         styles: {
           display: "flex",
           flexDirection: "column",
-          height: "100%",
-          minHeight: "350px",
+          height: (activeTab === "table" && !isDetachedWindow) ? "auto" : "100%",
+          minHeight: "100%",
           fontFamily: "system-ui, -apple-system, sans-serif",
         },
       });
@@ -1650,7 +1666,7 @@ export class Assistant {
             flex: "1",
             display: "flex",
             flexDirection: "column",
-            overflow: "hidden",
+            overflow: (activeTab === "table" && !isDetachedWindow) ? "visible" : "hidden",
           },
         });
 
@@ -2238,13 +2254,15 @@ export class Assistant {
     doc: Document,
     item: Zotero.Item,
   ): Promise<HTMLElement> {
+    const isDetachedWindow = !!doc.getElementById("seerai-detached-window");
     const tableContainer = ztoolkit.UI.createElement(doc, "div", {
       properties: { className: "papers-table-container" },
       styles: {
         display: "flex",
         flexDirection: "column",
-        height: "100%",
-        overflow: "hidden",
+        height: isDetachedWindow ? "100%" : "auto",
+        minHeight: "100%",
+        overflow: isDetachedWindow ? "hidden" : "visible",
       },
     });
 
@@ -2261,8 +2279,8 @@ export class Assistant {
         display: "flex",
         flexDirection: "row",
         flex: "1",
-        minHeight: "0",
-        overflow: "hidden",
+        overflow: isDetachedWindow ? "hidden" : "visible",
+        minHeight: isDetachedWindow ? "0" : "auto",
       },
     });
 
@@ -2271,8 +2289,10 @@ export class Assistant {
       properties: { className: "table-wrapper" },
       styles: {
         flex: "1",
-        overflow: "auto",
         backgroundColor: "var(--background-primary)",
+        overflowX: "auto",
+        overflowY: isDetachedWindow ? "auto" : "visible",
+        minWidth: "0",
       },
     });
 
@@ -2306,19 +2326,48 @@ export class Assistant {
     item: Zotero.Item,
     container: HTMLElement,
   ): HTMLElement {
+    const isDetachedWindow = !!doc.getElementById("seerai-detached-window");
     const sideStrip = ztoolkit.UI.createElement(doc, "div", {
       styles: {
-        width: "30px",
-        minWidth: "30px",
-        borderLeft: "1px solid var(--border-primary)",
+        width: "48px",
+        minWidth: "48px",
+        display: "flex",
+        flexDirection: "column",
+        height: isDetachedWindow ? "100%" : "auto",
+        position: "relative",
         backgroundColor: "var(--background-secondary)",
+        borderLeft: "1px solid var(--border-primary)",
+        paddingTop: isDetachedWindow ? "20px" : "120px",
+        paddingBottom: isDetachedWindow ? "20px" : "300px",
+        boxSizing: "border-box",
+        transition: "background-color 0.2s ease",
+      },
+    });
+
+    sideStrip.addEventListener("mouseenter", () => {
+      sideStrip.style.backgroundColor = "rgba(0, 0, 0, 0.02)";
+    });
+    sideStrip.addEventListener("mouseleave", () => {
+      sideStrip.style.backgroundColor = "var(--background-secondary)";
+    });
+
+    // Sticky container for buttons - Floating Glassmorphism Style
+    const stickyContainer = ztoolkit.UI.createElement(doc, "div", {
+      styles: {
+        position: "sticky",
+        top: isDetachedWindow ? "10px" : "180px",
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
-        gap: "8px",
-        paddingTop: "8px",
+        justifyContent: "center",
+        gap: "12px",
+        padding: "16px 0",
+        width: "100%",
+        alignSelf: "center",
+        zIndex: "100",
       },
     });
+    sideStrip.appendChild(stickyContainer);
 
     // Helper for side buttons (same pattern as search tab)
     const createSideBtn = (
@@ -2375,14 +2424,14 @@ export class Assistant {
         await this.addImmediateTableColumn(doc, item, container);
       },
     );
-    sideStrip.appendChild(addColumnBtn);
+    stickyContainer.appendChild(addColumnBtn);
 
     // 2. (⚡) Generate All
     const generateAllBtn = createSideBtn("⚡", "Generate All Analysis", (e) => {
       e.stopPropagation();
       this.generateAllEmptyColumns(doc, item);
     });
-    sideStrip.appendChild(generateAllBtn);
+    stickyContainer.appendChild(generateAllBtn);
 
     // 3. (⚙️) Settings
     const settingsBtn = createSideBtn(
@@ -2398,7 +2447,7 @@ export class Assistant {
         );
       },
     );
-    sideStrip.appendChild(settingsBtn);
+    stickyContainer.appendChild(settingsBtn);
 
     // === BULK ACTIONS (Hidden by default) ===
     const bulkActionsContainer = ztoolkit.UI.createElement(doc, "div", {
@@ -2603,7 +2652,7 @@ export class Assistant {
     bombSelectedBtn.style.borderColor = "#c62828";
     bulkActionsContainer.appendChild(bombSelectedBtn);
 
-    sideStrip.appendChild(bulkActionsContainer);
+    stickyContainer.appendChild(bulkActionsContainer);
 
     return sideStrip;
   }
@@ -16274,7 +16323,6 @@ You MUST call the generate_tags function.`;
             alignItems: "center",
             gap: "6px",
             overflow: "hidden",
-            flex: "1",
           },
         });
 

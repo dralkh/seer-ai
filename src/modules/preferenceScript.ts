@@ -12,6 +12,7 @@ import { AIModelConfig } from "./chat/types";
 
 // Track selected model config ID
 let selectedConfigId: string | null = null;
+const HTML_NS = "http://www.w3.org/1999/xhtml";
 
 /**
  * Helper function to get CSS variable value
@@ -485,7 +486,7 @@ function renderModelList() {
   if (emptyMsg) (emptyMsg as HTMLElement).style.display = 'none';
 
   configs.forEach(cfg => {
-    const item = doc.createElement('div');
+    const item = doc.createElementNS(HTML_NS, 'div') as HTMLElement;
     item.className = 'model-config-item';
     item.setAttribute('data-id', cfg.id);
 
@@ -509,7 +510,7 @@ function renderModelList() {
       align-items: center;
     `;
 
-    const info = doc.createElement('div');
+    const info = doc.createElementNS(HTML_NS, 'div') as HTMLElement;
     info.innerHTML = `
       <strong style="font-size: 13px;">${escapeHtml(cfg.name)}</strong>
       ${cfg.isDefault ? `<span style="color: ${accentColor}; font-size: 11px; margin-left: 8px;">★ Default</span>` : ''}
@@ -562,8 +563,13 @@ function showModelConfigDialog(existingConfig?: AIModelConfig) {
   const modalBg = getCssVar('--modal-bg');
   const modalTitleColor = getCssVar('--modal-title-color');
 
+  // Detect color scheme for fallbacks
+  const isDark = !!(win?.matchMedia?.('(prefers-color-scheme: dark)')?.matches);
+  const defaultBg = isDark ? '#1e1e1e' : '#ffffff';
+  const defaultTitleColor = isDark ? '#eeeeee' : '#111111';
+
   // Create modal overlay
-  const overlay = doc.createElement('div');
+  const overlay = doc.createElementNS(HTML_NS, 'div') as HTMLElement;
   overlay.id = 'model-config-modal-overlay';
   overlay.style.cssText = `
     position: fixed;
@@ -579,9 +585,10 @@ function showModelConfigDialog(existingConfig?: AIModelConfig) {
   `;
 
   // Create modal container
-  const modal = doc.createElement('div');
+  const modal = doc.createElementNS(HTML_NS, 'div') as HTMLElement;
   modal.style.cssText = `
-    background: ${modalBg || '#1e1e1e'}; // Fallback to solid dark since transparency is an issue
+    background: ${modalBg || defaultBg};
+    color: ${modalTitleColor || defaultTitleColor};
     border-radius: 8px;
     padding: 24px;
     min-width: 420px;
@@ -591,13 +598,13 @@ function showModelConfigDialog(existingConfig?: AIModelConfig) {
   `;
 
   // Modal title
-  const titleEl = doc.createElement('h3');
+  const titleEl = doc.createElementNS(HTML_NS, 'h3') as HTMLElement;
   titleEl.textContent = title;
   titleEl.style.cssText = `
     margin: 0 0 20px 0;
     font-size: 18px;
     font-weight: 600;
-    color: ${modalTitleColor};
+    color: ${modalTitleColor || defaultTitleColor};
   `;
   modal.appendChild(titleEl);
 
@@ -630,31 +637,31 @@ function showModelConfigDialog(existingConfig?: AIModelConfig) {
     display: block;
     font-size: 13px;
     font-weight: 500;
-    color: ${labelColor};
+    color: ${labelColor || defaultTitleColor};
     margin-bottom: 4px;
   `;
   const inputStyle = `
     width: 100%;
     padding: 10px 12px;
-    border: 1px solid ${inputBorder};
+    border: 1px solid ${inputBorder || (isDark ? '#444' : '#ccc')};
     border-radius: 6px;
     font-size: 14px;
     margin-bottom: 16px;
     box-sizing: border-box;
     transition: border-color 0.2s;
-    background: ${inputBg};
-    color: ${inputText};
+    background: ${inputBg || (isDark ? '#2d2d2d' : '#ffffff')};
+    color: ${inputText || defaultTitleColor};
   `;
   const selectStyle = `
     width: 100%;
     padding: 10px 12px;
-    border: 1px solid ${inputBorder};
+    border: 1px solid ${inputBorder || (isDark ? '#444' : '#ccc')};
     border-radius: 6px;
     font-size: 14px;
     margin-bottom: 16px;
     box-sizing: border-box;
-    background: ${inputBg};
-    color: ${inputText};
+    background: ${inputBg || (isDark ? '#2d2d2d' : '#ffffff')};
+    color: ${inputText || defaultTitleColor};
     cursor: pointer;
   `;
 
@@ -662,16 +669,16 @@ function showModelConfigDialog(existingConfig?: AIModelConfig) {
   const inputs: Record<string, HTMLInputElement> = {};
 
   if (!isEdit) {
-    const presetLabel = doc.createElement('label');
+    const presetLabel = doc.createElementNS(HTML_NS, 'label') as HTMLElement;
     presetLabel.textContent = 'Provider Preset';
     presetLabel.style.cssText = labelStyle;
     modal.appendChild(presetLabel);
 
-    const presetSelect = doc.createElement('select') as HTMLSelectElement;
+    const presetSelect = doc.createElementNS(HTML_NS, 'select') as HTMLSelectElement;
     presetSelect.style.cssText = selectStyle;
 
     providerPresets.forEach((preset, idx) => {
-      const option = doc.createElement('option');
+      const option = doc.createElementNS(HTML_NS, 'option') as HTMLOptionElement;
       option.value = String(idx);
       option.textContent = preset.name;
       presetSelect.appendChild(option);
@@ -695,13 +702,13 @@ function showModelConfigDialog(existingConfig?: AIModelConfig) {
     const dividerTextBg = getCssVar('--divider-text-bg');
     const dividerTextColor = getCssVar('--divider-text-color');
 
-    const divider = doc.createElement('div');
+    const divider = doc.createElementNS(HTML_NS, 'div') as HTMLElement;
     divider.style.cssText = `
       border-top: 1px solid ${dividerBg};
       margin: 4px 0 16px 0;
       position: relative;
     `;
-    const dividerText = doc.createElement('span');
+    const dividerText = doc.createElementNS(HTML_NS, 'span') as HTMLElement;
     dividerText.textContent = 'or fill manually';
     dividerText.style.cssText = `
       position: absolute;
@@ -726,12 +733,12 @@ function showModelConfigDialog(existingConfig?: AIModelConfig) {
   ];
 
   fields.forEach(field => {
-    const label = doc.createElement('label');
+    const label = doc.createElementNS(HTML_NS, 'label') as HTMLElement;
     label.textContent = field.label;
     label.style.cssText = labelStyle;
     modal.appendChild(label);
 
-    const input = doc.createElement('input') as HTMLInputElement;
+    const input = doc.createElementNS(HTML_NS, 'input') as HTMLInputElement;
     input.type = field.type;
     input.placeholder = field.placeholder;
     input.value = field.value;
@@ -751,12 +758,12 @@ function showModelConfigDialog(existingConfig?: AIModelConfig) {
   });
 
   // --- Rate Limit Section ---
-  const rlLabel = doc.createElement('label');
+  const rlLabel = doc.createElementNS(HTML_NS, 'label') as HTMLElement;
   rlLabel.textContent = 'Rate Limit';
   rlLabel.style.cssText = labelStyle;
   modal.appendChild(rlLabel);
 
-  const rlContainer = doc.createElement('div');
+  const rlContainer = doc.createElementNS(HTML_NS, 'div') as HTMLElement;
   rlContainer.style.cssText = `
     display: flex;
     gap: 12px;
@@ -764,7 +771,7 @@ function showModelConfigDialog(existingConfig?: AIModelConfig) {
   `;
 
   // Type Selector
-  const rlTypeSelect = doc.createElement('select') as HTMLSelectElement;
+  const rlTypeSelect = doc.createElementNS(HTML_NS, 'select') as HTMLSelectElement;
   rlTypeSelect.style.cssText = selectStyle;
   rlTypeSelect.style.marginBottom = '0';
   rlTypeSelect.style.flex = '1';
@@ -776,7 +783,7 @@ function showModelConfigDialog(existingConfig?: AIModelConfig) {
   ];
 
   rlTypes.forEach(t => {
-    const opt = doc.createElement('option');
+    const opt = doc.createElementNS(HTML_NS, 'option') as HTMLOptionElement;
     opt.value = t.value;
     opt.textContent = t.label;
     if (existingConfig?.rateLimit?.type === t.value) {
@@ -787,7 +794,7 @@ function showModelConfigDialog(existingConfig?: AIModelConfig) {
   rlContainer.appendChild(rlTypeSelect);
 
   // Value Input
-  const rlValueInput = doc.createElement('input') as HTMLInputElement;
+  const rlValueInput = doc.createElementNS(HTML_NS, 'input') as HTMLInputElement;
   rlValueInput.type = 'number';
   rlValueInput.min = '1';
   rlValueInput.placeholder = 'Limit';
@@ -809,12 +816,12 @@ function showModelConfigDialog(existingConfig?: AIModelConfig) {
   modal.appendChild(rlContainer);
 
   // --- Reasoning Effort Section ---
-  const reLabel = doc.createElement('label');
+  const reLabel = doc.createElementNS(HTML_NS, 'label') as HTMLElement;
   reLabel.textContent = 'Reasoning Effort (for o1/o3/reasoning models)';
   reLabel.style.cssText = labelStyle;
   modal.appendChild(reLabel);
 
-  const reSelect = doc.createElement('select') as HTMLSelectElement;
+  const reSelect = doc.createElementNS(HTML_NS, 'select') as HTMLSelectElement;
   reSelect.style.cssText = selectStyle;
 
   const reOptions = [
@@ -825,7 +832,7 @@ function showModelConfigDialog(existingConfig?: AIModelConfig) {
   ];
 
   reOptions.forEach(opt => {
-    const option = doc.createElement('option');
+    const option = doc.createElementNS(HTML_NS, 'option') as HTMLOptionElement;
     option.value = opt.value;
     option.textContent = opt.label;
     if (existingConfig?.reasoningEffort === opt.value || (!existingConfig?.reasoningEffort && opt.value === '')) {
@@ -841,7 +848,7 @@ function showModelConfigDialog(existingConfig?: AIModelConfig) {
   const errorBg = getCssVar('--modal-error-bg');
   const errorText = getCssVar('--modal-error-text');
 
-  const errorContainer = doc.createElement('div');
+  const errorContainer = doc.createElementNS(HTML_NS, 'div') as HTMLElement;
   errorContainer.style.cssText = `
     color: ${errorText};
     font-size: 12px;
@@ -854,7 +861,7 @@ function showModelConfigDialog(existingConfig?: AIModelConfig) {
   modal.appendChild(errorContainer);
 
   // Button container
-  const buttonContainer = doc.createElement('div');
+  const buttonContainer = doc.createElementNS(HTML_NS, 'div') as HTMLElement;
   buttonContainer.style.cssText = `
     display: flex;
     justify-content: flex-end;
@@ -872,7 +879,7 @@ function showModelConfigDialog(existingConfig?: AIModelConfig) {
   const btnBorder = getCssVar('--modal-input-border');
 
   // Cancel button
-  const cancelBtn = doc.createElement('button');
+  const cancelBtn = doc.createElementNS(HTML_NS, 'button') as HTMLButtonElement;
   cancelBtn.textContent = 'Cancel';
   cancelBtn.style.cssText = `
     padding: 10px 20px;
@@ -895,7 +902,7 @@ function showModelConfigDialog(existingConfig?: AIModelConfig) {
   });
 
   // Save button
-  const saveBtn = doc.createElement('button');
+  const saveBtn = doc.createElementNS(HTML_NS, 'button') as HTMLButtonElement;
   saveBtn.textContent = isEdit ? 'Save Changes' : 'Add Configuration';
   saveBtn.style.cssText = `
     padding: 10px 20px;
@@ -982,7 +989,7 @@ function showModelConfigDialog(existingConfig?: AIModelConfig) {
  * Escape HTML for safe display
  */
 function escapeHtml(text: string): string {
-  const div = addon.data.prefs!.window.document.createElement('div');
+  const div = addon.data.prefs!.window.document.createElementNS(HTML_NS, 'div') as HTMLElement;
   div.textContent = text;
   return div.innerHTML as string;
 }

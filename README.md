@@ -7,7 +7,7 @@
 
 <p align="center">
   <a href="https://www.zotero.org">
-    <img src="https://img.shields.io/badge/Zotero-7.x-brightgreen" />
+    <img src="https://img.shields.io/badge/Zotero-8.x-brightgreen" />
   </a>
   <a href="https://opensource.org/licenses/MIT">
     <img src="https://img.shields.io/badge/License-MIT-blue.svg" />

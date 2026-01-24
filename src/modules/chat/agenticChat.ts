@@ -29,6 +29,8 @@ import { parseMarkdown } from "./markdown";
 import { getActiveModelConfig } from "./modelConfig";
 import { agentTracer } from "./tracer";
 
+const HTML_NS = "http://www.w3.org/1999/xhtml";
+
 /**
  * Options for the agentic chat
  */
@@ -58,7 +60,7 @@ export function createToolProcessUI(doc: Document): {
     updateProgress: (count: number, toolCount?: number) => void;
     setFailed: (error: string) => void;
 } {
-    const details = doc.createElement("details");
+    const details = doc.createElementNS(HTML_NS, "details") as HTMLDetailsElement;
     details.className = "tool-process-container";
 
     // Initially hidden (collapsed)
@@ -73,7 +75,7 @@ export function createToolProcessUI(doc: Document): {
         box-shadow: 0 1px 2px rgba(0,0,0,0.05);
     `;
 
-    const summary = doc.createElement("summary");
+    const summary = doc.createElementNS(HTML_NS, "summary") as HTMLElement;
     summary.style.cssText = `
         padding: 8px 12px;
         cursor: pointer;
@@ -93,19 +95,19 @@ export function createToolProcessUI(doc: Document): {
     summary.onmouseout = () => { summary.style.background = "transparent"; };
 
     // Icon
-    const icon = doc.createElement("span");
+    const icon = doc.createElementNS(HTML_NS, "span") as HTMLElement;
     icon.textContent = "🧠"; // Brain icon for process
     icon.style.filter = "grayscale(100%) opacity(0.7)";
     summary.appendChild(icon);
 
     // Text Label
-    const label = doc.createElement("span");
+    const label = doc.createElementNS(HTML_NS, "span") as HTMLElement;
     label.textContent = "Thinking...";
     label.style.flex = "1";
     summary.appendChild(label);
 
     // Expand All Button
-    const expandBtn = doc.createElement("span");
+    const expandBtn = doc.createElementNS(HTML_NS, "span") as HTMLElement;
     expandBtn.textContent = "⤢"; // Open symbol
     expandBtn.title = "Expand All Steps";
     expandBtn.style.cssText = `
@@ -136,7 +138,7 @@ export function createToolProcessUI(doc: Document): {
     summary.appendChild(expandBtn);
 
     // Chevron
-    const chevron = doc.createElement("span");
+    const chevron = doc.createElementNS(HTML_NS, "span") as HTMLElement;
     chevron.innerHTML = `<svg width="10" height="6" viewBox="0 0 10 6" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1 1L5 5L9 1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
     chevron.style.color = "var(--text-tertiary, #999)";
     chevron.style.transition = "transform 0.2s ease";
@@ -150,7 +152,7 @@ export function createToolProcessUI(doc: Document): {
     details.appendChild(summary);
 
     // Container for card list
-    const listContainer = doc.createElement("div");
+    const listContainer = doc.createElementNS(HTML_NS, "div") as HTMLElement;
     listContainer.className = "tool-list-container";
     listContainer.style.cssText = `
         display: flex;
@@ -235,7 +237,7 @@ export function createToolExecutionUI(
     toolCall: ToolCall,
     result?: ToolResult
 ): HTMLElement {
-    const details = doc.createElement("details");
+    const details = doc.createElementNS(HTML_NS, "details") as HTMLDetailsElement;
     details.className = "tool-execution-card";
     details.setAttribute("data-tool-id", toolCall.id);
 
@@ -252,7 +254,7 @@ export function createToolExecutionUI(
     `;
 
     // Summary (Header)
-    const summary = doc.createElement("summary");
+    const summary = doc.createElementNS(HTML_NS, "summary") as HTMLElement;
     summary.style.cssText = `
         padding: 6px 10px;
         cursor: pointer;
@@ -273,7 +275,7 @@ export function createToolExecutionUI(
     summary.onmouseout = () => { summary.style.background = "var(--fill-quinary, rgba(0,0,0,0.02))"; };
 
     // Status Icon
-    const statusSpan = doc.createElement("span");
+    const statusSpan = doc.createElementNS(HTML_NS, "span") as HTMLElement;
     statusSpan.style.display = "flex";
     statusSpan.style.alignItems = "center";
     statusSpan.style.justifyContent = "center";
@@ -290,14 +292,14 @@ export function createToolExecutionUI(
     summary.appendChild(statusSpan);
 
     // Tool Name
-    const nameSpan = doc.createElement("span");
+    const nameSpan = doc.createElementNS(HTML_NS, "span") as HTMLElement;
     nameSpan.textContent = toolCall.function.name.replace(/_/g, " ");
     nameSpan.style.textTransform = "capitalize";
     nameSpan.style.flex = "1";
     summary.appendChild(nameSpan);
 
     // Chevron (Visual indicator for open/closed)
-    const chevron = doc.createElement("span");
+    const chevron = doc.createElementNS(HTML_NS, "span") as HTMLElement;
     chevron.innerHTML = `<svg width="8" height="5" viewBox="0 0 10 6" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1 1L5 5L9 1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
     chevron.style.opacity = "0.4";
     chevron.style.transform = details.open ? "rotate(0deg)" : "rotate(-90deg)"; // Initial state
@@ -312,7 +314,7 @@ export function createToolExecutionUI(
     details.appendChild(summary);
 
     // Content (Arguments & Results)
-    const content = doc.createElement("div");
+    const content = doc.createElementNS(HTML_NS, "div") as HTMLElement;
     content.className = "tool-details-content";
     content.style.cssText = `
         padding: 10px;
@@ -327,13 +329,13 @@ export function createToolExecutionUI(
 
     // Arguments
     try {
-        const argsLabel = doc.createElement("div");
+        const argsLabel = doc.createElementNS(HTML_NS, "div") as HTMLElement;
         argsLabel.textContent = "INPUT";
         argsLabel.style.cssText = "font-size: 10px; font-weight: 700; color: var(--text-tertiary, #8e8e93); margin-bottom: 4px; letter-spacing: 0.5px;";
         content.appendChild(argsLabel);
 
         const args = JSON.parse(toolCall.function.arguments);
-        const argsPre = doc.createElement("div");
+        const argsPre = doc.createElementNS(HTML_NS, "div") as HTMLElement;
         argsPre.textContent = JSON.stringify(args, null, 2);
         argsPre.style.whiteSpace = "pre-wrap";
         argsPre.style.color = "var(--text-primary)";
@@ -344,12 +346,12 @@ export function createToolExecutionUI(
 
     // Result
     if (result) {
-        const resLabel = doc.createElement("div");
+        const resLabel = doc.createElementNS(HTML_NS, "div") as HTMLElement;
         resLabel.textContent = "OUTPUT";
         resLabel.style.cssText = "font-size: 10px; font-weight: 700; color: var(--text-tertiary, #8e8e93); margin: 12px 0 4px 0; letter-spacing: 0.5px;";
         content.appendChild(resLabel);
 
-        const resDiv = doc.createElement("div");
+        const resDiv = doc.createElementNS(HTML_NS, "div") as HTMLElement;
         resDiv.style.whiteSpace = "pre-wrap";
 
         if (result.success) {

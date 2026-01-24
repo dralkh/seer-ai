@@ -223,9 +223,10 @@ export function validateModelConfig(config: Partial<AIModelConfig>): string[] {
         }
     }
 
-    if (!config.apiKey?.trim()) {
-        errors.push("API Key is required");
-    }
+    // API Key is no longer required (e.g. for local LLMs)
+    // if (!config.apiKey?.trim()) {
+    //     errors.push("API Key is required");
+    // }
 
     if (!config.model?.trim()) {
         errors.push("Model is required");
