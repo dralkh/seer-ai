@@ -13,6 +13,7 @@ import {
     ToolResult,
     AgentConfig,
 } from "./toolTypes";
+import { Assistant } from "../../assistant";
 
 /**
  * Unified note tool dispatcher
@@ -139,7 +140,7 @@ function markdownToHtml(markdown: string): string {
  */
 async function executeCreateNote(
     params: CreateNoteParams,
-    _config: AgentConfig
+    config: AgentConfig
 ): Promise<ToolResult> {
     try {
         const { parent_item_id, collection_id, title, content, tags } = params;
@@ -184,6 +185,24 @@ async function executeCreateNote(
                 };
             }
             libraryID = collection.libraryID;
+
+            // Verify collection scope
+            if (config.libraryScope.type === "collection") {
+                const scopedId = (config.libraryScope as any).collectionId;
+                if (collection_id !== scopedId && !isCollectionChildOf(collection, scopedId)) {
+                    return { success: false, error: `Permission Denied: Collection ${collection_id} is outside the current restricted scope.` };
+                }
+            } else if (config.libraryScope.type === "user" && libraryID !== Zotero.Libraries.userLibraryID) {
+                return { success: false, error: `Permission Denied: Collection is in a different library.` };
+            }
+        }
+
+        // Verify parent item scope if provided
+        if (parent_item_id) {
+            const parentItem = Zotero.Items.get(parent_item_id as number);
+            if (parentItem && !Assistant.checkItemInScope(parentItem, config)) {
+                return { success: false, error: `Permission Denied: Parent item ${parent_item_id} is outside the current restricted scope.` };
+            }
         }
 
         // Convert content to HTML if it looks like markdown
@@ -257,7 +276,7 @@ async function executeCreateNote(
  */
 async function executeEditNote(
     params: EditNoteParams,
-    _config: AgentConfig
+    config: AgentConfig
 ): Promise<ToolResult> {
     try {
         const { note_id, operations, convert_markdown = true } = params;
@@ -265,11 +284,19 @@ async function executeEditNote(
         Zotero.debug(`[seerai] Tool: edit_note id=${note_id} ops=${operations.length}`);
 
         // Get the item
-        let item = Zotero.Items.get(note_id);
+        const item = Zotero.Items.get(note_id);
         if (!item) {
             return {
                 success: false,
                 error: `Item with ID ${note_id} not found`,
+            };
+        }
+
+        // Verify scope permission
+        if (!Assistant.checkItemInScope(item, config)) {
+            return {
+                success: false,
+                error: `Permission Denied: Item ${note_id} is outside the current restricted scope.`
             };
         }
 
@@ -373,6 +400,24 @@ async function executeEditNote(
             error: error instanceof Error ? error.message : String(error),
         };
     }
+}
+
+/**
+ * Check if a collection is a descendant of another collection
+ */
+function isCollectionChildOf(collection: Zotero.Collection, parentId: number): boolean {
+    let current = collection;
+    while (current.parentID) {
+        if (current.parentID === parentId) return true;
+        try {
+            const parent = Zotero.Collections.get(current.parentID);
+            if (!parent) break;
+            current = parent;
+        } catch (e) {
+            break;
+        }
+    }
+    return false;
 }
 
 /**

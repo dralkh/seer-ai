@@ -47,6 +47,8 @@ export interface AgenticChatOptions {
     temperature?: number;
     /** Max tokens */
     maxTokens?: number;
+    /** Library scope override */
+    libraryScope?: import("./tools").LibraryScope;
 }
 
 /**
@@ -407,7 +409,8 @@ export async function handleAgenticChat(
 ): Promise<void> {
     const agentConfig = {
         ...getAgentConfigFromPrefs(),
-        permissionHandler: options.permissionHandler
+        permissionHandler: options.permissionHandler,
+        libraryScope: options.libraryScope || getAgentConfigFromPrefs().libraryScope
     };
 
     // Get tools if enabled

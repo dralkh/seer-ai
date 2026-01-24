@@ -1072,7 +1072,15 @@ export class Assistant {
     }
 
     mdContainer.setAttribute("data-raw", content);
-    mdContainer.innerHTML = parseMarkdown(content);
+    try {
+      mdContainer.innerHTML = parseMarkdown(content);
+    } catch (e) {
+      Zotero.debug(`[seerai] smartRender failed: ${e}`);
+      // Only fallback if it's the first time or if previous renders also failed
+      // We don't want to clear the screen if possible, but innerHTML assignment
+      // failure usually happens BEFORE anything is rendered.
+      mdContainer.textContent = content;
+    }
     this.lastRenderTime = now;
     this.lastRenderValue = content;
   }
@@ -1552,7 +1560,13 @@ export class Assistant {
       container.style.height = "auto";
       container.style.minHeight = "100%";
       container.style.overflow = "visible";
+    } else if (!isDetachedWindow) {
+      // Sidepanel (Chat/Search): Force viewport height to ensure internal scrolling works
+      // using 100vh instead of 100% because sidebar parent container often grows with content relative to the parent provided by Zotero
+      container.style.height = "100vh";
+      container.style.overflow = "hidden";
     } else {
+      // Detached Window: 100% works correctly here as window is constrained
       container.style.height = "100%";
       container.style.overflow = "hidden";
     }
@@ -1960,7 +1974,7 @@ export class Assistant {
     stateManager: ReturnType<typeof getChatStateManager>,
   ): Promise<HTMLElement> {
     const mainWrapper = doc.createElement("div");
-    mainWrapper.style.cssText = "display: flex; height: 100%; width: 100%; overflow: hidden;";
+    mainWrapper.style.cssText = "display: flex; height: 100%; width: 100%; overflow: hidden; box-sizing: border-box;";
 
     // === CHAT CONTENT ===
     const chatContainer = ztoolkit.UI.createElement(doc, "div", {
@@ -1970,9 +1984,10 @@ export class Assistant {
         height: "100%",
         flex: "1",
         gap: "8px",
-        padding: "8px 8px 20px 8px",
+        padding: "8px 8px 10px 8px",
         minWidth: "0",
         position: "relative",
+        boxSizing: "border-box",
       },
     });
 
@@ -1994,7 +2009,7 @@ export class Assistant {
         overflowY: "auto",
         border: "1px solid var(--border-primary)",
         borderRadius: "6px",
-        padding: "10px",
+        padding: "10px 10px 20px 10px",
         backgroundColor: "var(--background-primary)",
         display: "flex",
         flexDirection: "column",
@@ -19853,20 +19868,97 @@ ${tableRows}  </tbody>
   }
 
   /**
+   * Resolve current Zotero selection into a LibraryScope
+   */
+  private static resolveSelectionScope(): import("./chat/tools").LibraryScope {
+    try {
+      const zp = Zotero.getActiveZoteroPane();
+      if (!zp) return { type: "all" };
+
+      const collection = zp.getSelectedCollection();
+      if (collection) {
+        return { type: "collection", collectionId: collection.id, libraryID: collection.libraryID } as any;
+      }
+
+      const libraryID = zp.getSelectedLibraryID();
+      if (typeof libraryID === 'number') {
+        const groupID = Zotero.Groups.getGroupIDFromLibraryID(libraryID);
+        if (groupID) {
+          return { type: "group", groupId: groupID };
+        }
+        return { type: "user" };
+      }
+    } catch (e) {
+      Zotero.debug(`[seerai] Error resolving selection scope: ${e}`);
+    }
+    return { type: "all" };
+  }
+
+  /**
    * Get current library scope preference
    */
   private static getScopePref(): string {
     try {
-      return (Zotero.Prefs.get("extensions.seerai.libraryScope") as string) || "all";
+      return (Zotero.Prefs.get("extensions.seerai.libraryScope") as string) || "selection";
     } catch (e) {
-      return "all";
+      return "selection";
     }
+  }
+
+  /**
+   * Check if an item is within the current library scope
+   */
+  public static checkItemInScope(item: Zotero.Item, config: any): boolean {
+    if (!config.libraryScope || config.libraryScope.type === "all") return true;
+
+    if (config.libraryScope.type === "user") {
+      return item.libraryID === Zotero.Libraries.userLibraryID;
+    }
+
+    if (config.libraryScope.type === "group") {
+      const groupLibId = Zotero.Groups.getLibraryIDFromGroupID(config.libraryScope.groupId);
+      return item.libraryID === groupLibId;
+    }
+
+    if (config.libraryScope.type === "collection") {
+      const scopedId = (config.libraryScope as any).collectionId;
+      const collections = item.getCollections();
+
+      // Check if item is directly in the collection or any sub-collection
+      if (collections.includes(scopedId)) return true;
+
+      // Recursive check for all parents of all collections the item is in
+      for (const colId of collections) {
+        let currentId: number | null = colId;
+        while (currentId) {
+          if (currentId === scopedId) return true;
+          const col: Zotero.Collection | undefined = Zotero.Collections.get(currentId);
+          currentId = col ? col.parentID : null;
+        }
+      }
+      return false;
+    }
+
+    return false;
   }
 
   /**
    * Get human-readable label for a scope string
    */
   private static getScopeLabel(scope: string): string {
+    if (scope === "selection") {
+      const resolved = this.resolveSelectionScope();
+      if (resolved.type === "collection") {
+        const col = Zotero.Collections.get((resolved as any).collectionId);
+        return col ? col.name : "Selection";
+      } else if (resolved.type === "group") {
+        const group = Zotero.Groups.get(resolved.groupId);
+        return group ? group.name : "Selection";
+      } else if (resolved.type === "user") {
+        return "My Library";
+      }
+      return "Automatic";
+    }
     if (scope === "user") return "My Library";
     if (scope === "all") return "All Libraries";
     if (scope.startsWith("group:")) {
@@ -19978,8 +20070,8 @@ ${tableRows}  </tbody>
       }
     };
 
-    // 1. All Libraries (Global)
-    addOption("All Libraries", "all", "🌐");
+    // 1. All Libraries (Global Override)
+    addOption("All Libraries (Global)", "all", "🌐");
 
     // Separator
     const sep1 = doc.createElement("div");
@@ -20044,6 +20136,7 @@ ${tableRows}  </tbody>
         display: "flex",
         flexDirection: "column",
         gap: "6px",
+        marginBottom: "10px",
       },
     });
 
@@ -21739,7 +21832,8 @@ ${tableRows}  </tbody>
         }
       }
 
-      const scopeLabel = this.getScopeLabel(this.getScopePref());
+      const scopePref = this.getScopePref();
+      const scopeLabel = this.getScopeLabel(scopePref);
       const systemPrompt = `You are a helpful research assistant for Zotero. You help users understand and analyze their academic papers, notes, and research data tables.
 
 Current Library/Folder Scope: ${scopeLabel} (Tools will only find items within this scope).
@@ -21883,6 +21977,7 @@ ${webContext ? " When using web search results, cite the source URL." : ""}`;
             permissionHandler: Assistant.handleInlinePermissionRequest,
             temperature: chatOptions.temperature,
             maxTokens: chatOptions.maxTokens,
+            libraryScope: scopePref === "selection" ? this.resolveSelectionScope() : undefined,
           },
           observer
         );
@@ -21943,7 +22038,12 @@ ${webContext ? " When using web search results, cite the source URL." : ""}`;
               // Final render with markdown
               if (contentDiv) {
                 contentDiv.setAttribute("data-raw", cleanedContent);
-                contentDiv.innerHTML = parseMarkdown(cleanedContent);
+                try {
+                  contentDiv.innerHTML = parseMarkdown(cleanedContent);
+                } catch (e) {
+                  Zotero.debug(`[seerai] onComplete render failed: ${e}`);
+                  contentDiv.textContent = cleanedContent;
+                }
               }
 
               // Clear pasted images after successful send

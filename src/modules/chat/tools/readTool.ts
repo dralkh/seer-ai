@@ -18,7 +18,7 @@ import { Assistant } from "../../assistant";
  */
 export async function executeGetItemMetadata(
     params: GetItemMetadataParams,
-    _config: AgentConfig
+    config: AgentConfig
 ): Promise<ToolResult> {
     try {
         const { item_id } = params;
@@ -29,6 +29,14 @@ export async function executeGetItemMetadata(
             return {
                 success: false,
                 error: `Item with ID ${item_id} not found`,
+            };
+        }
+
+        // Verify scope permission
+        if (!Assistant.checkItemInScope(item, config)) {
+            return {
+                success: false,
+                error: `Permission Denied: Item ${item_id} is outside the current restricted scope.`
             };
         }
 
@@ -127,6 +135,14 @@ export async function executeReadItemContent(
             return {
                 success: false,
                 error: `Item with ID ${item_id} not found`,
+            };
+        }
+
+        // Verify scope permission
+        if (!Assistant.checkItemInScope(item, config)) {
+            return {
+                success: false,
+                error: `Permission Denied: Item ${item_id} is outside the current restricted scope.`
             };
         }
 

@@ -152,7 +152,12 @@ export function createMessageBubble(
         wordBreak: "break-word",
         maxWidth: "100%"
     });
-    contentDiv.innerHTML = parseMarkdown(text);
+    try {
+        contentDiv.innerHTML = parseMarkdown(text);
+    } catch (e) {
+        Zotero.debug(`[seerai] Error rendering markdown: ${e}`);
+        contentDiv.textContent = text; // Fallback to plain text
+    }
 
     msgDiv.appendChild(headerDiv);
     msgDiv.appendChild(contentDiv);

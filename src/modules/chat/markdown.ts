@@ -109,6 +109,57 @@ function parseInline(text: string): string {
 }
 
 /**
+ * Balance and close HTML tags to ensure valid XHTML.
+ * Especially important for streaming content.
+ */
+export function balanceTags(html: string): string {
+    if (!html) return '';
+
+    const stack: string[] = [];
+    let result = '';
+    const tagRegex = /<(\/?[a-z1-6]+)([^>]*?)(\/?)>/gi;
+    let lastIndex = 0;
+    let match;
+
+    while ((match = tagRegex.exec(html)) !== null) {
+        // Add text before the tag
+        result += html.substring(lastIndex, match.index);
+        lastIndex = tagRegex.lastIndex;
+
+        const fullTag = match[0];
+        const tag = match[1].toLowerCase();
+        const isSelfClosing = match[3] === '/' || ['hr', 'br', 'img', 'br'].includes(tag);
+
+        if (isSelfClosing) {
+            result += fullTag;
+        } else if (tag.startsWith('/')) {
+            const tagName = tag.substring(1);
+            const index = stack.lastIndexOf(tagName);
+            if (index !== -1) {
+                // Close everything on top of it to maintain LIFO/XHTML validity
+                while (stack.length > index) {
+                    result += `</${stack.pop()}>`;
+                }
+            }
+            // If not found, ignore the orphaned closing tag
+        } else {
+            stack.push(tag);
+            result += fullTag;
+        }
+    }
+
+    // Add remaining text
+    result += html.substring(lastIndex);
+
+    // Close any remaining open tags (crucial for streaming)
+    while (stack.length > 0) {
+        result += `</${stack.pop()}>`;
+    }
+
+    return result;
+}
+
+/**
  * Parse markdown text to HTML
  */
 export function parseMarkdown(markdown: string): string {
@@ -318,5 +369,5 @@ export function parseMarkdown(markdown: string): string {
         htmlParts.push(`<pre style="background: rgba(0,0,0,0.08); padding: 12px; border-radius: 6px; overflow-x: auto; font-family: monospace; font-size: 0.9em; margin: 8px 0; white-space: pre-wrap; word-break: break-word;"><code>${escapeHtml(codeBlockContent.join('\n'))}</code></pre>`);
     }
 
-    return htmlParts.join('');
+    return balanceTags(htmlParts.join(''));
 }

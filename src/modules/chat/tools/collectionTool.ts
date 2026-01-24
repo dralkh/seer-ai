@@ -87,7 +87,7 @@ function getCollectionPath(collection: Zotero.Collection): string {
  */
 async function executeFindCollection(
     params: FindCollectionParams,
-    _config: AgentConfig
+    config: AgentConfig
 ): Promise<ToolResult> {
     try {
         const { name, library_id, parent_collection_id } = params;
@@ -100,17 +100,46 @@ async function executeFindCollection(
         if (parent_collection_id) {
             const parent = Zotero.Collections.get(parent_collection_id);
             if (parent) {
+                // If we have a scope and it's a collection, verify parent is within that scope
+                if (config.libraryScope.type === "collection") {
+                    const scopedId = (config.libraryScope as any).collectionId;
+                    if (parent_collection_id !== scopedId && !isCollectionChildOf(parent, scopedId)) {
+                        Zotero.debug(`[seerai] Tool: find_collection - parent ${parent_collection_id} is outside scoped collection ${scopedId}`);
+                        return { success: true, data: { collections: [] }, summary: `Search restricted to scoped collection subtree.` };
+                    }
+                }
                 // Get sub-collections
                 collections = parent.getChildCollections();
             }
+        } else if (config.libraryScope.type === "collection") {
+            const scopedId = (config.libraryScope as any).collectionId;
+            const parent = Zotero.Collections.get(scopedId);
+            if (parent) {
+                collections = parent.getChildCollections();
+            }
         } else if (library_id) {
-            collections = Zotero.Collections.getByLibrary(library_id);
+            // Respect library scope if set
+            if (config.libraryScope.type === "user" && library_id !== Zotero.Libraries.userLibraryID) {
+                collections = [];
+            } else if (config.libraryScope.type === "group" && library_id !== Zotero.Groups.getLibraryIDFromGroupID(config.libraryScope.groupId)) {
+                collections = [];
+            } else {
+                collections = Zotero.Collections.getByLibrary(library_id);
+            }
         } else {
-            // Search all accessible libraries
-            const allLibraries = Zotero.Libraries.getAll();
-            for (const lib of allLibraries) {
-                if (lib) {
-                    collections.push(...Zotero.Collections.getByLibrary(lib.id));
+            // Search based on library scope
+            if (config.libraryScope.type === "user") {
+                collections = Zotero.Collections.getByLibrary(Zotero.Libraries.userLibraryID);
+            } else if (config.libraryScope.type === "group") {
+                const libId = Zotero.Groups.getLibraryIDFromGroupID(config.libraryScope.groupId);
+                if (libId) collections = Zotero.Collections.getByLibrary(libId);
+            } else {
+                // Search all accessible libraries
+                const allLibraries = Zotero.Libraries.getAll();
+                for (const lib of allLibraries) {
+                    if (lib) {
+                        collections.push(...Zotero.Collections.getByLibrary(lib.id));
+                    }
                 }
             }
         }
@@ -156,7 +185,7 @@ async function executeFindCollection(
  */
 async function executeCreateCollection(
     params: CreateCollectionParams,
-    _config: AgentConfig
+    config: AgentConfig
 ): Promise<ToolResult> {
     try {
         const { name, parent_collection_id, library_id } = params;
@@ -237,13 +266,31 @@ async function executeCreateCollection(
  */
 async function executeListCollection(
     params: ListCollectionParams,
-    _config: AgentConfig
+    config: AgentConfig
 ): Promise<ToolResult> {
     try {
         const { collection_id } = params;
         const collection = Zotero.Collections.get(collection_id);
         if (!collection) {
             return { success: false, error: `Collection ${collection_id} not found` };
+        }
+
+        // Verify scope permission
+        if (config.libraryScope.type === "collection") {
+            const scopedId = (config.libraryScope as any).collectionId;
+            if (collection_id !== scopedId && !isCollectionChildOf(collection, scopedId)) {
+                return {
+                    success: false,
+                    error: `Permission Denied: Collection ${collection_id} is outside the current restricted scope.`
+                };
+            }
+        } else if (config.libraryScope.type === "user" && collection.libraryID !== Zotero.Libraries.userLibraryID) {
+            return { success: false, error: `Permission Denied: Collection is in a different library.` };
+        } else if (config.libraryScope.type === "group") {
+            const groupLibId = Zotero.Groups.getLibraryIDFromGroupID(config.libraryScope.groupId);
+            if (collection.libraryID !== groupLibId) {
+                return { success: false, error: `Permission Denied: Collection is in a different library.` };
+            }
         }
 
         const items: ListCollectionResult["items"] = [];
@@ -291,7 +338,7 @@ async function executeListCollection(
  */
 async function executeMoveItem(
     params: MoveItemParams,
-    _config: AgentConfig
+    config: AgentConfig
 ): Promise<ToolResult> {
     try {
         const { item_id, target_collection_id, remove_from_others } = params;
@@ -384,7 +431,7 @@ async function executeMoveItem(
  */
 async function executeRemoveItemFromCollection(
     params: RemoveItemFromCollectionParams,
-    _config: AgentConfig
+    config: AgentConfig
 ): Promise<ToolResult> {
     try {
         const { item_id, collection_id } = params;
@@ -422,4 +469,22 @@ async function executeRemoveItemFromCollection(
             error: error instanceof Error ? error.message : String(error)
         };
     }
+}
+
+/**
+ * Check if a collection is a descendant of another collection
+ */
+function isCollectionChildOf(collection: Zotero.Collection, parentId: number): boolean {
+    let current = collection;
+    while (current.parentID) {
+        if (current.parentID === parentId) return true;
+        try {
+            const parent = Zotero.Collections.get(current.parentID);
+            if (!parent) break;
+            current = parent;
+        } catch (e) {
+            break;
+        }
+    }
+    return false;
 }
